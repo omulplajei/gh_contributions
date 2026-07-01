@@ -213,3 +213,57 @@ def test_render_empty_repos_shows_no_repos_panel() -> None:
     assert '<script id="report-data"' in html  # payload still present but with empty repos
     payload = _find_payload(html)
     assert payload["repos"] == {}
+
+
+# ---------- render (banners, errors, layer selection) ----------
+
+
+def test_render_shows_truncation_banner_when_any_endpoint_truncated() -> None:
+    metrics = _metrics({
+        "acme/api": _repo(ts=_ts(), truncated={"commits": True}),
+    })
+    html = render(metrics)
+    assert 'class="warn-banner"' in html
+    assert "acme/api" in html
+    assert "commits" in html  # endpoint name surfaced
+
+
+def test_render_no_truncation_banner_when_nothing_truncated() -> None:
+    metrics = _metrics({
+        "acme/api": _repo(ts=_ts(), truncated={}),
+    })
+    html = render(metrics)
+    assert 'class="warn-banner"' not in html
+
+
+def test_render_errored_repo_shows_error_banner_in_its_tab() -> None:
+    metrics = _metrics({
+        "healthy": _repo(ts=_ts()),
+        "broken":  _repo(error="not_found"),
+    })
+    html = render(metrics)
+    broken_section = _extract_section(html, "broken")
+    assert "error-banner" in broken_section
+    assert "not_found" in broken_section
+    assert "<canvas" not in broken_section
+    healthy_section = _extract_section(html, "healthy")
+    assert "error-banner" not in healthy_section
+    assert healthy_section.count("<canvas") == 4
+
+
+def test_render_layer_disabled_placeholder() -> None:
+    metrics = _metrics(
+        {"acme/api": _repo(commits_by_user={"alice": {"commits": 1}}, ts=_ts())},
+        layers=("authoring",),
+    )
+    html = render(metrics)
+    section = _extract_section(html, "acme/api")
+    assert 'data-chart="authoring"' in section
+    assert section.count("layer-disabled") == 3
+
+
+def _extract_section(html: str, repo: str) -> str:
+    marker = f'data-repo="{repo}"'
+    start = html.index(f'<section {marker}')
+    end = html.index("</section>", start) + len("</section>")
+    return html[start:end]

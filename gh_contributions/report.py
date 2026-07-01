@@ -151,21 +151,50 @@ def _tab_body(name: str, repo: dict, layers: set, active: bool) -> str:
             f'  <div class="error-banner">{_esc(label)}: {_esc(repo["error"])}</div>'
             f'</section>'
         )
+    cells = [
+        _cell("team_share", "Team share",    "team_share",    name, layers),
+        _cell("authoring",  "Authoring",     "authoring",     name, layers),
+        _cell("reviews",    "Reviews given", "collaboration", name, layers),
+        _cell("comments",   "Comments",      "collaboration", name, layers),
+    ]
     return (
         f'<section data-repo="{name}"{hidden}>'
-        f'  <div class="grid">'
-        f'    <div class="cell"><canvas data-chart="team_share" data-repo="{name}"></canvas></div>'
-        f'    <div class="cell"><canvas data-chart="authoring"  data-repo="{name}"></canvas></div>'
-        f'    <div class="cell"><canvas data-chart="reviews"    data-repo="{name}"></canvas></div>'
-        f'    <div class="cell"><canvas data-chart="comments"   data-repo="{name}"></canvas></div>'
-        f'  </div>'
+        f'  <div class="grid">{"".join(cells)}</div>'
         f'  <table class="details" data-repo="{name}"></table>'
         f'</section>'
     )
 
 
+def _cell(chart_key: str, title: str, required_layer: str, repo_name: str, layers: set) -> str:
+    if required_layer not in layers:
+        return (
+            '<div class="cell layer-disabled">'
+            f'<strong>{_esc(title)}</strong>'
+            f'<p>Layer <code>{_esc(required_layer)}</code> disabled in config.</p>'
+            "</div>"
+        )
+    return (
+        '<div class="cell">'
+        f'<canvas data-chart="{chart_key}" data-repo="{repo_name}"></canvas>'
+        "</div>"
+    )
+
+
 def _banners_html(repos: dict) -> str:
-    return ""  # Task 5 fills in truncation + error banners.
+    truncated_pairs: list[str] = []
+    for name, repo in repos.items():
+        for endpoint, flag in (repo.get("truncated") or {}).items():
+            if flag:
+                truncated_pairs.append(f"{name}/{endpoint}")
+    if not truncated_pairs:
+        return ""
+    items = ", ".join(_esc(p) for p in sorted(truncated_pairs))
+    return (
+        '<div class="warn-banner">'
+        "Some counts are undercounts \u2014 the following endpoints hit GitHub's 1000-result cap: "
+        f"{items}."
+        "</div>"
+    )
 
 
 _CSS = """
