@@ -25,3 +25,6 @@ replay_pid*
 
 # Local analysis config (users, repos, date window, metrics). Do not commit.
 config.yml
+
+# Analyzer output directory
+out/
