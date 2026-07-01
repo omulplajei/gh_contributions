@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import math
 import pytest
 
 from gh_contributions.config import load_config
@@ -97,10 +96,10 @@ def test_collaboration_pr_vs_issue_comment_split() -> None:
 def test_team_share_happy_path() -> None:
     out = _load("team_share")
     share = out["repos"]["acme/api"]["team_share"]
-    assert math.isclose(share["share_commits"], 4 / 10)
-    assert math.isclose(share["share_pull_requests_opened"], 1 / 2)
-    assert math.isclose(share["share_reviews_given"], 2 / 3)
-    assert math.isclose(share["share_comments"], 3 / 4)
+    assert share["commits"]              == {"team": 4, "total": 10, "share": pytest.approx(4 / 10)}
+    assert share["pull_requests_opened"] == {"team": 1, "total": 2,  "share": pytest.approx(1 / 2)}
+    assert share["reviews_given"]        == {"team": 2, "total": 3,  "share": pytest.approx(2 / 3)}
+    assert share["comments"]             == {"team": 3, "total": 4,  "share": pytest.approx(3 / 4)}
 
 
 def test_team_share_zero_denominator_is_null(tmp_path) -> None:
@@ -124,10 +123,10 @@ def test_team_share_zero_denominator_is_null(tmp_path) -> None:
 
     out = compute(tmp_path, cfg)
     share = out["repos"]["acme/api"]["team_share"]
-    assert share["share_commits"] is None
-    assert share["share_pull_requests_opened"] is None
-    assert share["share_reviews_given"] is None
-    assert share["share_comments"] is None
+    assert share["commits"]              == {"team": 0, "total": 0, "share": None}
+    assert share["pull_requests_opened"] == {"team": 0, "total": 0, "share": None}
+    assert share["reviews_given"]        == {"team": 0, "total": 0, "share": None}
+    assert share["comments"]             == {"team": 0, "total": 0, "share": None}
 
 
 def test_repo_error_propagates() -> None:

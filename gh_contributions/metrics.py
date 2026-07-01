@@ -214,11 +214,6 @@ def _apply_team_share(repo_dir: Path, config: Config, out: dict) -> None:
     team = set(config.usernames)
     lo, hi = _window_bounds(config)
 
-    def _ratio(team_n: int, total_n: int) -> float | None:
-        if total_n == 0:
-            return None
-        return team_n / total_n
-
     # commits — Search results are already window-filtered by the query.
     commits = _read_json(repo_dir / "commits.json", default=[])
     total_commits = len(commits)
@@ -256,8 +251,16 @@ def _apply_team_share(repo_dir: Path, config: Config, out: dict) -> None:
                 team_comments += 1
 
     out["team_share"] = {
-        "share_commits": _ratio(team_commits, total_commits),
-        "share_pull_requests_opened": _ratio(team_prs, total_prs),
-        "share_reviews_given": _ratio(team_reviews, total_reviews),
-        "share_comments": _ratio(team_comments, total_comments),
+        "commits":              _bucket(team_commits, total_commits),
+        "pull_requests_opened": _bucket(team_prs, total_prs),
+        "reviews_given":        _bucket(team_reviews, total_reviews),
+        "comments":             _bucket(team_comments, total_comments),
+    }
+
+
+def _bucket(team_n: int, total_n: int) -> dict:
+    return {
+        "team": team_n,
+        "total": total_n,
+        "share": (team_n / total_n) if total_n else None,
     }
