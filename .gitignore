@@ -24,7 +24,11 @@ hs_err_pid*
 replay_pid*
 
 # Local analysis config (users, repos, date window, metrics). Do not commit.
-config.yml
+/config.yml
 
 # Analyzer output directory
 out/
+
+# Python bytecode / pytest cache
+__pycache__/
+.pytest_cache/
