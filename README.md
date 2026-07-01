@@ -37,6 +37,17 @@ python3 -m gh_contributions.run
 
 Output: `out/<UTC-timestamp>/metrics.json`. Raw API pages are kept under `out/<UTC-timestamp>/raw/` for audit and reruns.
 
+## Report
+
+Turn the run's `metrics.json` into a self-contained HTML page (Chart.js inlined, works offline):
+
+```bash
+python3 -m gh_contributions.report            # newest out/*/
+python3 -m gh_contributions.report out/2026-07-01T201112Z
+```
+
+Output: `out/<run>/report.html`. Open it in a browser. First tab (`All repos`) aggregates across every configured repo; the rest are one tab per repo.
+
 ## Test
 
 ```bash
