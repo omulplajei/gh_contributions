@@ -422,4 +422,45 @@ def _esc(text: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    raise NotImplementedError("main implemented in Task 6")
+    argv = argv if argv is not None else sys.argv[1:]
+
+    if argv:
+        run_dir = Path(argv[0])
+    else:
+        out_root = Path("out")
+        if not out_root.is_dir():
+            print("no run directories found under out/", file=sys.stderr)
+            return 2
+        candidates = sorted(p for p in out_root.iterdir() if p.is_dir())
+        if not candidates:
+            print("no run directories found under out/", file=sys.stderr)
+            return 2
+        run_dir = candidates[-1]
+
+    metrics_path = run_dir / "metrics.json"
+    if not metrics_path.is_file():
+        print(f"report error: metrics.json not found in {run_dir}", file=sys.stderr)
+        return 2
+
+    try:
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"report error: malformed metrics.json: {exc}", file=sys.stderr)
+        return 2
+
+    agg = _aggregate(metrics)
+    if agg is not None:
+        metrics = {
+            **metrics,
+            "repos": {"__aggregate__": agg, **metrics.get("repos", {})},
+        }
+
+    html = render(metrics)
+    out_path = run_dir / "report.html"
+    out_path.write_text(html, encoding="utf-8")
+    print(f"wrote {out_path}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

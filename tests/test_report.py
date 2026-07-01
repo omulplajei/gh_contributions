@@ -267,3 +267,47 @@ def _extract_section(html: str, repo: str) -> str:
     start = html.index(f'<section {marker}')
     end = html.index("</section>", start) + len("</section>")
     return html[start:end]
+
+
+# ---------- main (CLI smoke) ----------
+
+
+def _valid_metrics_dict() -> dict:
+    return _metrics({
+        "acme/api": _repo(
+            commits_by_user={"alice": {"commits": 3}},
+            ts=_ts(commits=(3, 5)),
+        ),
+    })
+
+
+def test_main_writes_report_html_and_exits_zero(tmp_path: Path) -> None:
+    (tmp_path / "metrics.json").write_text(json.dumps(_valid_metrics_dict()))
+    rc = main([str(tmp_path)])
+    assert rc == 0
+    out = tmp_path / "report.html"
+    assert out.exists()
+    body = out.read_text(encoding="utf-8")
+    assert len(body) > 150000
+    assert 'data-repo="__aggregate__"' in body
+
+
+def test_main_missing_metrics_json_exits_two(tmp_path: Path) -> None:
+    rc = main([str(tmp_path)])  # empty dir, no metrics.json
+    assert rc == 2
+
+
+def test_main_picks_newest_run_dir_when_no_arg(tmp_path, monkeypatch) -> None:
+    out_root = tmp_path / "out"
+    older = out_root / "2026-01-01T000000Z"
+    newer = out_root / "2026-02-01T000000Z"
+    older.mkdir(parents=True)
+    newer.mkdir(parents=True)
+    (older / "metrics.json").write_text(json.dumps(_valid_metrics_dict()))
+    (newer / "metrics.json").write_text(json.dumps(_valid_metrics_dict()))
+    monkeypatch.chdir(tmp_path)
+
+    rc = main([])
+    assert rc == 0
+    assert (newer / "report.html").exists()
+    assert not (older / "report.html").exists()
