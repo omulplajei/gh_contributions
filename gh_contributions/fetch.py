@@ -148,8 +148,8 @@ def _fetch_prs_updated(client: GitHubClient, repo: str, since: date, until: date
     ):
         stop = False
         for pr in page:
-            updated = pr.get("updated_at", "")[:10]
-            if updated < since.isoformat():
+            updated = (pr.get("updated_at") or "")[:10]
+            if updated and updated < since.isoformat():
                 stop = True
                 break
             if updated > until.isoformat():
@@ -172,8 +172,8 @@ def _paginate_until_before(
     for page in client.get_paginated(path, params):
         stop = False
         for item in page:
-            ts = item.get(ts_key, "")[:10]
-            if ts < since.isoformat():
+            ts = (item.get(ts_key) or "")[:10]
+            if ts and ts < since.isoformat():
                 stop = True
                 break
             out.append(item)
@@ -183,4 +183,11 @@ def _paginate_until_before(
 
 
 def _write_error(repo_dir: Path, reason: str) -> None:
+    for child in repo_dir.iterdir():
+        if child.is_dir():
+            for grandchild in child.iterdir():
+                grandchild.unlink()
+            child.rmdir()
+        else:
+            child.unlink()
     (repo_dir / "_meta.json").write_text(json.dumps({"error": reason}))
