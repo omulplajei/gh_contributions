@@ -137,3 +137,79 @@ def test_aggregate_skips_errored_repos_but_uses_healthy_ones() -> None:
     assert agg is not None
     assert agg["per_user"]["alice"]["authoring"]["commits"] == 4
     assert agg["team_share"]["commits"] == {"team": 4, "total": 8, "share": 0.5}
+
+
+# ---------- render (happy path) ----------
+
+
+def _find_payload(html: str) -> dict:
+    """Extract and parse the JSON payload embedded in the report."""
+    tag = '<script id="report-data" type="application/json">'
+    start = html.index(tag) + len(tag)
+    end = html.index("</script>", start)
+    return json.loads(html[start:end])
+
+
+def test_render_embeds_report_data_payload() -> None:
+    metrics = _metrics({
+        "acme/api": _repo(
+            commits_by_user={
+                "alice": {"commits": 5, "pull_requests_opened": 2, "COMMENTED": 3, "review_comments": 4},
+                "bob":   {"commits": 2, "APPROVED": 1, "issue_comments": 1},
+            },
+            ts=_ts(commits=(7, 10), prs=(2, 5), reviews=(4, 4), comments=(5, 8)),
+        ),
+    })
+    html = render(metrics)
+    payload = _find_payload(html)
+
+    assert list(payload["repos"]) == ["acme/api"]
+    repo = payload["repos"]["acme/api"]
+    assert repo["error"] is None
+
+    # team_share block: parallel arrays over the four buckets.
+    assert repo["team_share"]["buckets"] == list(_TEAM_SHARE_BUCKETS_EXPECTED)
+    assert repo["team_share"]["team"]   == [7, 2, 4, 5]
+    assert repo["team_share"]["total"]  == [10, 5, 4, 8]
+
+    # authoring: users sorted by commits desc, parallel arrays per metric.
+    assert repo["authoring"]["users"] == ["alice", "bob"]
+    assert repo["authoring"]["commits"] == [5, 2]
+    assert repo["authoring"]["pull_requests_opened"] == [2, 0]
+
+    # reviews: users sorted by total reviews desc.
+    assert repo["reviews"]["users"] == ["bob", "alice"] or repo["reviews"]["users"] == ["alice", "bob"]
+    # Verify the numbers are aligned with whichever order was chosen.
+    order = repo["reviews"]["users"]
+    approved_by_user = dict(zip(order, repo["reviews"]["APPROVED"]))
+    commented_by_user = dict(zip(order, repo["reviews"]["COMMENTED"]))
+    assert approved_by_user == {"alice": 0, "bob": 1}
+    assert commented_by_user == {"alice": 3, "bob": 0}
+
+
+_TEAM_SHARE_BUCKETS_EXPECTED = ("commits", "pull_requests_opened", "reviews_given", "comments")
+
+
+def test_render_produces_tab_button_per_repo() -> None:
+    metrics = _metrics({
+        "__aggregate__": _repo(ts=_ts()),
+        "acme/api":      _repo(ts=_ts()),
+        "orgx/repoy":    _repo(ts=_ts()),
+    })
+    html = render(metrics)
+    # Tabs use data-repo="<name>" on buttons; count each.
+    for name in ("__aggregate__", "acme/api", "orgx/repoy"):
+        assert f'data-repo="{name}"' in html
+    # __aggregate__ button comes before the real repos in document order.
+    assert html.index('data-repo="__aggregate__"') < html.index('data-repo="acme/api"')
+    assert html.index('data-repo="acme/api"') < html.index('data-repo="orgx/repoy"')
+
+
+def test_render_empty_repos_shows_no_repos_panel() -> None:
+    metrics = _metrics({})
+    html = render(metrics)
+    assert "No repos in this run" in html
+    assert 'data-repo="' not in html  # no tab buttons
+    assert '<script id="report-data"' in html  # payload still present but with empty repos
+    payload = _find_payload(html)
+    assert payload["repos"] == {}
