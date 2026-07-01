@@ -1,0 +1,7 @@
+[
+  {"sha": "a1", "author": {"login": "alice"}, "commit": {"author": {"date": "2026-02-01T10:00:00Z"}}},
+  {"sha": "a2", "author": {"login": "alice"}, "commit": {"author": {"date": "2026-03-15T10:00:00Z"}}},
+  {"sha": "b1", "author": {"login": "bob"},   "commit": {"author": {"date": "2026-04-01T10:00:00Z"}}},
+  {"sha": "x1", "author": {"login": "eve"},   "commit": {"author": {"date": "2026-05-01T10:00:00Z"}}},
+  {"sha": "d1", "author": {"login": "dependabot[bot]"}, "commit": {"author": {"date": "2026-06-01T10:00:00Z"}}}
+]

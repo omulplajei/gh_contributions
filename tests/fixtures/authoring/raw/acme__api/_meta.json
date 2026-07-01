@@ -1,0 +1,6 @@
+{
+  "commits":            {"total_count": 5,   "truncated": false},
+  "prs_by_created":     {"total_count": 4,   "truncated": false},
+  "prs_by_merged":      {"total_count": 2,   "truncated": false},
+  "issues_by_created":  {"total_count": 2,   "truncated": false}
+}
