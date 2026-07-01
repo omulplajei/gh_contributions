@@ -1,7 +1,8 @@
 # Analysis Config File — Design
 
 **Date:** 2026-07-01
-**Status:** Approved
+**Status:** Approved (partially superseded — see note)
+**Superseded by:** [2026-07-01-team-activity-metrics-design.md](2026-07-01-team-activity-metrics-design.md) for the `metrics:` whitelist and its validation. All other sections of this spec (`usernames`, `repos`, `since`, `until`, gitignore behavior) remain authoritative.
 **Scope:** Rename `usernames.yml` to `config.yml`, extend it to describe the full analysis run (users, repos, date window, metrics), and update `.gitignore`.
 
 ## Goal
@@ -20,7 +21,7 @@ Flat top-level keys. Chosen for readability while the config is small; sections 
 | `repos` | list of strings, each `owner/repo` | yes; may be empty | Repositories to scan. Empty means "none configured yet" — analyzer warns, does not crash. |
 | `since` | date, `YYYY-MM-DD` | yes | Inclusive lower bound of the analysis window. |
 | `until` | date, `YYYY-MM-DD` | yes | Inclusive upper bound. Must be >= `since`. |
-| `metrics` | list of strings | yes, non-empty | Which stats to compute. Allowed values: `commits`, `pull_requests`, `reviews`, `issues`, `comments`. Unknown values are rejected by the analyzer. |
+| `metrics` | list of strings | yes, non-empty | Which stats to compute. **Superseded — see** [team-activity-metrics design](2026-07-01-team-activity-metrics-design.md). Allowed values are now `authoring`, `collaboration`, `team_share`. The old values (`commits`, `pull_requests`, `reviews`, `issues`, `comments`) are no longer accepted. |
 
 Validation rules (for the future analyzer, captured here so behavior is fixed):
 
