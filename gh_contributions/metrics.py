@@ -47,6 +47,11 @@ def _compute_repo(raw_dir: Path, repo: str, config: Config) -> dict:
         "error": None,
     }
 
+    if isinstance(meta, dict):
+        for endpoint, entry in meta.items():
+            if isinstance(entry, dict) and entry.get("truncated"):
+                truncated[endpoint] = True
+
     if "authoring" in config.metrics:
         _apply_authoring(repo_dir, config, per_user, truncated)
 
@@ -86,11 +91,6 @@ def _apply_authoring(
 
     for u in team:
         per_user[u]["authoring"] = counts[u]
-
-    meta = _read_json(repo_dir / "_meta.json", default={})
-    for src_key in ("commits", "prs_by_created", "prs_by_merged", "issues_by_created"):
-        if isinstance(meta, dict) and meta.get(src_key, {}).get("truncated"):
-            truncated[src_key] = True
 
 
 def _author_login(item: dict, src: str) -> str | None:
@@ -198,11 +198,6 @@ def _apply_collaboration(
 
     for u in team:
         per_user[u]["collaboration"] = collab[u]
-
-    meta = _read_json(repo_dir / "_meta.json", default={})
-    for src_key in ("prs_updated", "review_comments", "issue_comments", "reviews"):
-        if isinstance(meta, dict) and meta.get(src_key, {}).get("truncated"):
-            truncated[src_key] = True
 
 
 def _parent_number(issue_url: str | None) -> int | None:

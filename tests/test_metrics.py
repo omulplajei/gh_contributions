@@ -136,6 +136,7 @@ def test_repo_error_propagates() -> None:
     assert repo["error"] == "not_found"
     assert repo["per_user"] is None
     assert repo["team_share"] is None
+    assert repo["truncated"] is None
 
 
 def test_truncation_flag_propagates() -> None:
@@ -156,3 +157,10 @@ def test_layer_selection_team_share_only_omits_per_user_details() -> None:
     # Users appear as keys but with no authoring/collaboration blocks.
     assert "alice" in per_user
     assert per_user["alice"] == {}
+
+
+def test_team_share_only_layer_propagates_truncation() -> None:
+    out = _load("team_share")
+    repo = out["repos"]["acme/api"]
+    # With only team_share enabled, truncated must still propagate.
+    assert repo["truncated"].get("commits") is True

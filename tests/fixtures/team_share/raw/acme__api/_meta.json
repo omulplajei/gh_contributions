@@ -1,5 +1,5 @@
 {
-  "commits":         {"total_count": 10, "truncated": false},
+  "commits":         {"total_count": 10, "truncated": true},
   "prs_by_created":  {"total_count": 2,  "truncated": false},
   "prs_updated":     {"total_count": 2,  "truncated": false},
   "reviews":         {"total_count": 3,  "truncated": false},
