@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +43,9 @@ def _compute_repo(raw_dir: Path, repo: str, config: Config) -> dict:
 
     if "authoring" in config.metrics:
         _apply_authoring(repo_dir, config, per_user, truncated)
+
+    if "collaboration" in config.metrics:
+        _apply_collaboration(repo_dir, config, per_user, truncated)
 
     return {
         "per_user": per_user,
@@ -100,3 +103,109 @@ def _read_json(path: Path, *, default):
         return default
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
+
+
+_REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
+
+
+def _window_bounds(config: Config) -> tuple[datetime, datetime]:
+    lo = datetime.combine(config.since, time.min, tzinfo=timezone.utc)
+    hi = datetime.combine(config.until, time(23, 59, 59), tzinfo=timezone.utc)
+    return lo, hi
+
+
+def _parse_ts(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def _in_window(ts: str | None, lo: datetime, hi: datetime) -> bool:
+    d = _parse_ts(ts)
+    return d is not None and lo <= d <= hi
+
+
+def _apply_collaboration(
+    repo_dir: Path,
+    config: Config,
+    per_user: dict[str, dict],
+    truncated: dict[str, bool],
+) -> None:
+    team = set(config.usernames)
+    lo, hi = _window_bounds(config)
+
+    collab = {u: {
+        "reviews_given": {s: 0 for s in _REVIEW_STATES},
+        "review_comments": 0,
+        "pr_conversation_comments": 0,
+        "issue_comments": 0,
+        "cross_team_reviews": 0,
+    } for u in team}
+
+    # PR author map from prs_updated.json (login by PR number).
+    pr_author_by_number: dict[int, str] = {}
+    for pr in _read_json(repo_dir / "prs_updated.json", default=[]):
+        num = pr.get("number")
+        user = pr.get("user") or {}
+        if isinstance(num, int) and isinstance(user, dict):
+            pr_author_by_number[num] = user.get("login") or ""
+
+    known_pr_numbers = set(pr_author_by_number)
+
+    # Reviews: iterate reviews/<number>.json files.
+    reviews_dir = repo_dir / "reviews"
+    if reviews_dir.is_dir():
+        for review_file in sorted(reviews_dir.glob("*.json")):
+            pr_number = int(review_file.stem)
+            pr_author = pr_author_by_number.get(pr_number, "")
+            for r in _read_json(review_file, default=[]):
+                state = r.get("state")
+                if state not in _REVIEW_STATES:
+                    continue
+                if not _in_window(r.get("submitted_at"), lo, hi):
+                    continue
+                reviewer = ((r.get("user") or {}).get("login")) or ""
+                if reviewer not in team:
+                    continue
+                collab[reviewer]["reviews_given"][state] += 1
+                if pr_author and pr_author not in team:
+                    collab[reviewer]["cross_team_reviews"] += 1
+
+    # Review comments (inline PR review comments), repo-wide.
+    for c in _read_json(repo_dir / "review_comments.json", default=[]):
+        if not _in_window(c.get("created_at"), lo, hi):
+            continue
+        login = ((c.get("user") or {}).get("login")) or ""
+        if login in team:
+            collab[login]["review_comments"] += 1
+
+    # Issue comments: split into PR-conversation vs issue comments by parent number.
+    for c in _read_json(repo_dir / "issue_comments.json", default=[]):
+        if not _in_window(c.get("created_at"), lo, hi):
+            continue
+        login = ((c.get("user") or {}).get("login")) or ""
+        if login not in team:
+            continue
+        parent = _parent_number(c.get("issue_url"))
+        if parent is not None and parent in known_pr_numbers:
+            collab[login]["pr_conversation_comments"] += 1
+        else:
+            collab[login]["issue_comments"] += 1
+
+    for u in team:
+        per_user[u]["collaboration"] = collab[u]
+
+    meta = _read_json(repo_dir / "_meta.json", default={})
+    for src_key in ("prs_updated", "review_comments", "issue_comments", "reviews"):
+        if isinstance(meta, dict) and meta.get(src_key, {}).get("truncated"):
+            truncated[src_key] = True
+
+
+def _parent_number(issue_url: str | None) -> int | None:
+    if not issue_url:
+        return None
+    tail = issue_url.rstrip("/").rsplit("/", 1)[-1]
+    try:
+        return int(tail)
+    except ValueError:
+        return None

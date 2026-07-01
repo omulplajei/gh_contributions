@@ -50,3 +50,44 @@ def test_run_metadata_present() -> None:
     assert out["run"]["until"] == "2026-06-30"
     assert out["run"]["metrics_layers"] == ["authoring"]
     assert "generated_at" in out["run"]
+
+
+def test_collaboration_reviews_by_state() -> None:
+    out = _load("collaboration")
+    users = out["repos"]["acme/api"]["per_user"]
+    # PENDING and DISMISSED are ignored.
+    assert users["alice"]["collaboration"]["reviews_given"] == {
+        "APPROVED": 2, "CHANGES_REQUESTED": 0, "COMMENTED": 1,
+    }
+    assert users["bob"]["collaboration"]["reviews_given"] == {
+        "APPROVED": 1, "CHANGES_REQUESTED": 1, "COMMENTED": 0,
+    }
+
+
+def test_collaboration_cross_team_reviews() -> None:
+    out = _load("collaboration")
+    users = out["repos"]["acme/api"]["per_user"]
+    # PR 2 is authored by eve (not in team). alice reviewed PR 2 twice (COMMENTED, APPROVED).
+    # PR 1 authored by alice (team), so bob's review on PR 1 is not cross-team.
+    # PR 3 authored by bob (team), no cross-team review there.
+    assert users["alice"]["collaboration"]["cross_team_reviews"] == 2
+    assert users["bob"]["collaboration"]["cross_team_reviews"] == 0
+
+
+def test_collaboration_review_comments_windowed() -> None:
+    out = _load("collaboration")
+    users = out["repos"]["acme/api"]["per_user"]
+    # alice has 3 total; 1 is before window (2025-12-31) -> 2 counted. eve excluded (not team).
+    assert users["alice"]["collaboration"]["review_comments"] == 2
+    assert users["bob"]["collaboration"]["review_comments"] == 1
+
+
+def test_collaboration_pr_vs_issue_comment_split() -> None:
+    out = _load("collaboration")
+    users = out["repos"]["acme/api"]["per_user"]
+    # alice: both comments are on PR #1 and #2 -> pr_conversation_comments=2, issue_comments=0
+    # bob: comments on #50 and #51 which are not in prs_updated -> issue_comments=2
+    assert users["alice"]["collaboration"]["pr_conversation_comments"] == 2
+    assert users["alice"]["collaboration"]["issue_comments"] == 0
+    assert users["bob"]["collaboration"]["pr_conversation_comments"] == 0
+    assert users["bob"]["collaboration"]["issue_comments"] == 2

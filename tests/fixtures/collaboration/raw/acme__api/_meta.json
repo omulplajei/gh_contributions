@@ -1,0 +1,6 @@
+{
+  "prs_updated":     {"total_count": 3, "truncated": false},
+  "review_comments": {"total_count": 5, "truncated": false},
+  "issue_comments":  {"total_count": 4, "truncated": false},
+  "reviews":         {"total_count": 8, "truncated": false}
+}
