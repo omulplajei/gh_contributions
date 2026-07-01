@@ -169,7 +169,7 @@ Output shape:
 ```
 
 Rules:
-- Only layers in `config.metrics` appear in output. `per_user` is omitted when neither `authoring` nor `collaboration` is enabled. `team_share` block is omitted when `team_share` is not enabled.
+- Only layers in `config.metrics` appear in output. `per_user` is always a dict keyed by team logins; when neither `authoring` nor `collaboration` is enabled, each login maps to `{}`. `team_share` is the full share dict when `team_share` is enabled, otherwise `null`.
 - `per_user` keys are the exact logins from `config.usernames`. Bots and non-team users never appear as keys.
 - Bots and non-team users still contribute to `team_share` denominators (spec-mandated).
 - Share metrics: `null` when denominator is zero (JSON-safe, no division by zero).
