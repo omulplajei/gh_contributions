@@ -32,3 +32,6 @@ out/
 # Python bytecode / pytest cache
 __pycache__/
 .pytest_cache/
+
+# Local environment variables (GITHUB_TOKEN, etc.). Do not commit.
+.env
