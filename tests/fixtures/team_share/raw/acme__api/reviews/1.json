@@ -1,0 +1,4 @@
+[
+  {"user": {"login": "bob"}, "state": "APPROVED", "submitted_at": "2026-02-05T10:00:00Z"},
+  {"user": {"login": "eve"}, "state": "APPROVED", "submitted_at": "2026-02-06T10:00:00Z"}
+]

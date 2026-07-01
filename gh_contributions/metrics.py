@@ -40,6 +40,12 @@ def _compute_repo(raw_dir: Path, repo: str, config: Config) -> dict:
 
     per_user: dict[str, dict] = {u: {} for u in config.usernames}
     truncated: dict[str, bool] = {}
+    out: dict[str, Any] = {
+        "per_user": per_user,
+        "team_share": None,
+        "truncated": truncated,
+        "error": None,
+    }
 
     if "authoring" in config.metrics:
         _apply_authoring(repo_dir, config, per_user, truncated)
@@ -47,12 +53,10 @@ def _compute_repo(raw_dir: Path, repo: str, config: Config) -> dict:
     if "collaboration" in config.metrics:
         _apply_collaboration(repo_dir, config, per_user, truncated)
 
-    return {
-        "per_user": per_user,
-        "team_share": None,
-        "truncated": truncated,
-        "error": None,
-    }
+    if "team_share" in config.metrics:
+        _apply_team_share(repo_dir, config, out)
+
+    return out
 
 
 def _apply_authoring(
@@ -209,3 +213,56 @@ def _parent_number(issue_url: str | None) -> int | None:
         return int(tail)
     except ValueError:
         return None
+
+
+def _apply_team_share(repo_dir: Path, config: Config, out: dict) -> None:
+    team = set(config.usernames)
+    lo, hi = _window_bounds(config)
+
+    def _ratio(team_n: int, total_n: int) -> float | None:
+        if total_n == 0:
+            return None
+        return team_n / total_n
+
+    # commits — Search results are already window-filtered by the query.
+    commits = _read_json(repo_dir / "commits.json", default=[])
+    total_commits = len(commits)
+    team_commits = sum(1 for c in commits if _author_login(c, "commits.json") in team)
+
+    # prs_by_created — window-filtered by query.
+    prs_opened = _read_json(repo_dir / "prs_by_created.json", default=[])
+    total_prs = len(prs_opened)
+    team_prs = sum(1 for p in prs_opened if _author_login(p, "prs_by_created.json") in team)
+
+    # reviews — sum across all PRs' reviews files, filter to counted states + window.
+    total_reviews = 0
+    team_reviews = 0
+    reviews_dir = repo_dir / "reviews"
+    if reviews_dir.is_dir():
+        for review_file in sorted(reviews_dir.glob("*.json")):
+            for r in _read_json(review_file, default=[]):
+                if r.get("state") not in _REVIEW_STATES:
+                    continue
+                if not _in_window(r.get("submitted_at"), lo, hi):
+                    continue
+                total_reviews += 1
+                if ((r.get("user") or {}).get("login")) in team:
+                    team_reviews += 1
+
+    # comments — review_comments + issue_comments (both PR-conv and issue), window-filtered.
+    total_comments = 0
+    team_comments = 0
+    for src in ("review_comments.json", "issue_comments.json"):
+        for c in _read_json(repo_dir / src, default=[]):
+            if not _in_window(c.get("created_at"), lo, hi):
+                continue
+            total_comments += 1
+            if ((c.get("user") or {}).get("login")) in team:
+                team_comments += 1
+
+    out["team_share"] = {
+        "share_commits": _ratio(team_commits, total_commits),
+        "share_pull_requests_opened": _ratio(team_prs, total_prs),
+        "share_reviews_given": _ratio(team_reviews, total_reviews),
+        "share_comments": _ratio(team_comments, total_comments),
+    }

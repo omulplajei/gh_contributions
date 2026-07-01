@@ -1,0 +1,12 @@
+[
+  {"sha": "a1", "author": {"login": "alice"},            "commit": {"author": {"date": "2026-02-01T10:00:00Z"}}},
+  {"sha": "a2", "author": {"login": "alice"},            "commit": {"author": {"date": "2026-02-02T10:00:00Z"}}},
+  {"sha": "b1", "author": {"login": "bob"},              "commit": {"author": {"date": "2026-02-03T10:00:00Z"}}},
+  {"sha": "b2", "author": {"login": "bob"},              "commit": {"author": {"date": "2026-02-04T10:00:00Z"}}},
+  {"sha": "e1", "author": {"login": "eve"},              "commit": {"author": {"date": "2026-02-05T10:00:00Z"}}},
+  {"sha": "e2", "author": {"login": "eve"},              "commit": {"author": {"date": "2026-02-06T10:00:00Z"}}},
+  {"sha": "e3", "author": {"login": "eve"},              "commit": {"author": {"date": "2026-02-07T10:00:00Z"}}},
+  {"sha": "d1", "author": {"login": "dependabot[bot]"}, "commit": {"author": {"date": "2026-02-08T10:00:00Z"}}},
+  {"sha": "d2", "author": {"login": "dependabot[bot]"}, "commit": {"author": {"date": "2026-02-09T10:00:00Z"}}},
+  {"sha": "d3", "author": {"login": "dependabot[bot]"}, "commit": {"author": {"date": "2026-02-10T10:00:00Z"}}}
+]

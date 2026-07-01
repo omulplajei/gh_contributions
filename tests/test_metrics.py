@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import math
 import pytest
 
 from gh_contributions.config import load_config
@@ -91,3 +92,67 @@ def test_collaboration_pr_vs_issue_comment_split() -> None:
     assert users["alice"]["collaboration"]["issue_comments"] == 0
     assert users["bob"]["collaboration"]["pr_conversation_comments"] == 0
     assert users["bob"]["collaboration"]["issue_comments"] == 2
+
+
+def test_team_share_happy_path() -> None:
+    out = _load("team_share")
+    share = out["repos"]["acme/api"]["team_share"]
+    assert math.isclose(share["share_commits"], 4 / 10)
+    assert math.isclose(share["share_pull_requests_opened"], 1 / 2)
+    assert math.isclose(share["share_reviews_given"], 2 / 3)
+    assert math.isclose(share["share_comments"], 3 / 4)
+
+
+def test_team_share_zero_denominator_is_null(tmp_path) -> None:
+    from gh_contributions.config import Config
+    from datetime import date
+
+    cfg = Config(
+        usernames=["alice"],
+        repos=["acme/api"],
+        since=date(2026, 1, 1),
+        until=date(2026, 6, 30),
+        metrics=["team_share"],
+    )
+    repo_dir = tmp_path / "acme__api"
+    repo_dir.mkdir()
+    (repo_dir / "_meta.json").write_text("{}")
+    for f in ("commits.json", "prs_by_created.json", "prs_updated.json",
+              "review_comments.json", "issue_comments.json"):
+        (repo_dir / f).write_text("[]")
+    (repo_dir / "reviews").mkdir()
+
+    out = compute(tmp_path, cfg)
+    share = out["repos"]["acme/api"]["team_share"]
+    assert share["share_commits"] is None
+    assert share["share_pull_requests_opened"] is None
+    assert share["share_reviews_given"] is None
+    assert share["share_comments"] is None
+
+
+def test_repo_error_propagates() -> None:
+    out = _load("empty_repo")
+    repo = out["repos"]["acme/api"]
+    assert repo["error"] == "not_found"
+    assert repo["per_user"] is None
+    assert repo["team_share"] is None
+
+
+def test_truncation_flag_propagates() -> None:
+    out = _load("truncated")
+    repo = out["repos"]["acme/api"]
+    assert repo["truncated"].get("commits") is True
+
+
+def test_layer_selection_authoring_only_omits_team_share() -> None:
+    out = _load("authoring")  # config enables only "authoring"
+    repo = out["repos"]["acme/api"]
+    assert repo["team_share"] is None
+
+
+def test_layer_selection_team_share_only_omits_per_user_details() -> None:
+    out = _load("team_share")  # config enables only "team_share"
+    per_user = out["repos"]["acme/api"]["per_user"]
+    # Users appear as keys but with no authoring/collaboration blocks.
+    assert "alice" in per_user
+    assert per_user["alice"] == {}
