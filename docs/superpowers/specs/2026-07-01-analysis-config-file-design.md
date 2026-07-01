@@ -49,9 +49,9 @@ since: 2025-01-01
 until: 2025-12-31
 
 metrics:
-  - commits
-  - pull_requests
-  - reviews
+  - authoring
+  - collaboration
+  - team_share
 ```
 
 ## Concrete Changes
@@ -61,7 +61,7 @@ metrics:
    - Keep all 21 existing usernames under the `usernames` key.
    - Add `repos: []` with a comment showing the expected entry format.
    - Add `since: 2025-01-01` and `until: 2025-12-31` as placeholder defaults (user edits later).
-   - Add `metrics` seeded with `commits`, `pull_requests`, `reviews`.
+   - Add `metrics` seeded with `authoring`, `collaboration`, `team_share` (**superseded** — see [team-activity-metrics design](2026-07-01-team-activity-metrics-design.md); the original seeding used `commits`, `pull_requests`, `reviews`).
    - Update the top-of-file comment to say "Configuration for GitHub contribution analysis. Do not commit." rather than referring only to usernames.
 3. Update `.gitignore`: replace the `usernames.yml` entry with `config.yml`.
 

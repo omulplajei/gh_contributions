@@ -111,6 +111,25 @@ with:
 | `metrics` | list of strings | yes, non-empty | Which stats to compute. **Superseded — see** [team-activity-metrics design](2026-07-01-team-activity-metrics-design.md). Allowed values are now `authoring`, `collaboration`, `team_share`. The old values (`commits`, `pull_requests`, `reviews`, `issues`, `comments`) are no longer accepted. |
 ```
 
+- [ ] **Step 4b: Update the Example YAML and the Concrete Changes seeding bullet**
+
+The same spec has two more places that still show the old whitelist as active values: the `## Example` fenced YAML block, and the `## Concrete Changes` bullet that seeds `metrics`. Fix both so no reader lands on an unqualified stale value.
+
+In the `## Example` fenced YAML block, locate the `metrics:` list and replace the three entries `- commits`, `- pull_requests`, `- reviews` with, verbatim:
+```yaml
+metrics:
+  - authoring
+  - collaboration
+  - team_share
+```
+Preserve every other line in the example (comment header, `usernames:`, `repos:`, `since:`, `until:`) exactly as-is.
+
+In the `## Concrete Changes` section, locate the nested bullet under item 2 that reads "Add `metrics` seeded with `commits`, `pull_requests`, `reviews`." and replace it with:
+```
+   - Add `metrics` seeded with `authoring`, `collaboration`, `team_share` (**superseded** — see [team-activity-metrics design](2026-07-01-team-activity-metrics-design.md); the original seeding used `commits`, `pull_requests`, `reviews`).
+```
+Do not touch other bullets in that list.
+
 - [ ] **Step 5: Verify the edits**
 
 Run:
@@ -118,12 +137,14 @@ Run:
 grep -n 'Superseded by' docs/superpowers/specs/2026-07-01-analysis-config-file-design.md
 grep -n 'authoring`, `collaboration`, `team_share' docs/superpowers/specs/2026-07-01-analysis-config-file-design.md
 grep -c 'Allowed values: `commits`, `pull_requests`, `reviews`, `issues`, `comments`' docs/superpowers/specs/2026-07-01-analysis-config-file-design.md
+grep -cE '^  - (commits|pull_requests|reviews)$' docs/superpowers/specs/2026-07-01-analysis-config-file-design.md
 ```
 
 Expected:
 - One hit for `Superseded by` (top-of-file notice).
 - One hit for the new whitelist string.
 - Zero hits for the old inline whitelist (it was replaced in the schema row).
+- Zero hits for the old bare-list `- commits` / `- pull_requests` / `- reviews` entries (the Example YAML no longer seeds the old whitelist).
 
 - [ ] **Step 6: Commit**
 
