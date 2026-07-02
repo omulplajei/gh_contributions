@@ -1,4 +1,4 @@
-"""Entry point: config -> fetch -> compute -> metrics.json."""
+"""Entry point: config -> monthly fetch -> compute -> metrics.json."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import ConfigError, load_config
-from .fetch import fetch_repo
+from .fetch import _is_bucket_complete, _month_bounds, _months_between, fetch_repo
 from .github_client import AuthError, GitHubClient
 from .metrics import compute
 
@@ -32,39 +32,50 @@ def main(argv: list[str] | None = None) -> int:
         print("GITHUB_TOKEN env var is required", file=sys.stderr)
         return 2
 
-    run_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
-    out_dir = Path("out") / run_id
-    raw_dir = out_dir / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    print(f"run dir: {out_dir}", file=sys.stderr)
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    run_id = now.strftime("%Y-%m-%dT%H%M%SZ")
 
-    if not cfg.repos:
-        print("no repos configured; writing empty metrics.json", file=sys.stderr)
-        _write_metrics(out_dir, compute(raw_dir, cfg))
+    run_out = Path("out") / run_id
+    run_out.mkdir(parents=True, exist_ok=True)
+    raw_root = Path("out") / "raw"
+    raw_root.mkdir(parents=True, exist_ok=True)
+    print(f"run dir: {run_out}", file=sys.stderr)
+    print(f"raw cache: {raw_root}", file=sys.stderr)
+
+    months = _months_between(cfg.since, today)
+    if not months or not cfg.repos:
+        if not cfg.repos:
+            print("no repos configured; writing empty metrics.json", file=sys.stderr)
+        else:
+            print(f"since ({cfg.since}) is after today; writing empty metrics.json", file=sys.stderr)
+        _write_metrics(run_out, compute(raw_root, cfg, today=today))
         return 0
 
     client = GitHubClient(token)
-    ok_count = 0
-    for repo in cfg.repos:
-        print(f"fetching {repo}", file=sys.stderr)
-        try:
-            fetch_repo(client, repo, cfg.since, cfg.until, raw_dir)
-        except AuthError as exc:
-            print(f"auth failed: {exc}", file=sys.stderr)
-            return 2
-        # Any other failure was recorded in the repo's _meta.json by fetch_repo.
-        meta_path = raw_dir / f"{repo.replace('/', '__')}" / "_meta.json"
-        if meta_path.exists():
+    for month in months:
+        month_start, month_end = _month_bounds(month, today)
+        month_dir = raw_root / month
+        month_dir.mkdir(parents=True, exist_ok=True)
+        for repo in cfg.repos:
+            owner, name = repo.split("/", 1)
+            bucket = month_dir / f"{owner}__{name}"
+            if _is_bucket_complete(bucket):
+                print(f"skip {month} {repo} (cached)", file=sys.stderr)
+                continue
+            print(f"fetching {month} {repo}", file=sys.stderr)
             try:
-                meta = json.loads(meta_path.read_text())
-                if not meta.get("error"):
-                    ok_count += 1
-            except json.JSONDecodeError:
-                pass
+                fetch_repo(client, repo, month_start, month_end, month_dir)
+            except AuthError as exc:
+                print(f"auth failed: {exc}", file=sys.stderr)
+                return 2
 
-    result = compute(raw_dir, cfg)
-    _write_metrics(out_dir, result)
+    result = compute(raw_root, cfg, today=today)
+    _write_metrics(run_out, result)
 
+    ok_count = sum(
+        1 for r in result["repos"].values() if r.get("per_user") is not None
+    )
     if ok_count == 0:
         print("no repos produced metrics", file=sys.stderr)
         return 1
