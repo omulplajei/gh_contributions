@@ -42,16 +42,33 @@ def _repo(commits_by_user=None, ts=None, truncated=None, error=None):
     }
 
 
-def _ts(commits=(0, 0), prs=(0, 0), reviews=(0, 0), comments=(0, 0)):
-    def bucket(pair):
-        team, total = pair
-        return {"team": team, "total": total, "share": (team / total) if total else None}
+def _ts(commits=(0, 0), pr=(0, 0), comments=(0, 0)):
+    """Build a new-shape team_share block. Puts the (team, total) totals in
+    the first sub-key of each layer; other sub-keys are 0."""
+    def layer(pair, sub_keys):
+        team_t, total_t = pair
+        team_map  = {k: 0 for k in sub_keys}
+        total_map = {k: 0 for k in sub_keys}
+        team_map[sub_keys[0]]  = team_t
+        total_map[sub_keys[0]] = total_t
+        return {
+            "team":  team_map,
+            "total": total_map,
+            "share": (team_t / total_t) if total_t else None,
+        }
     return {
-        "commits":              bucket(commits),
-        "pull_requests_opened": bucket(prs),
-        "reviews_given":        bucket(reviews),
-        "comments":             bucket(comments),
+        "commits":  layer(commits,  _TEAM_SHARE_SUB_METRICS["commits"]),
+        "pr":       layer(pr,       _TEAM_SHARE_SUB_METRICS["pr"]),
+        "comments": layer(comments, _TEAM_SHARE_SUB_METRICS["comments"]),
     }
+
+
+_TEAM_SHARE_SUB_METRICS = {
+    "commits":  ("commits",),
+    "pr":       ("pull_requests_opened", "pull_requests_merged",
+                 "APPROVED", "CHANGES_REQUESTED", "COMMENTED"),
+    "comments": ("review_comments", "pr_conversation_comments", "issue_comments"),
+}
 
 
 def _metrics(repos, layers=("authoring", "collaboration", "team_share")):
@@ -100,13 +117,20 @@ def test_aggregate_sums_per_user_across_repos() -> None:
 
 def test_aggregate_recomputes_team_share_ratios() -> None:
     metrics = _metrics({
-        "acme/api": _repo(ts=_ts(commits=(7, 10), reviews=(0, 0))),
-        "acme/web": _repo(ts=_ts(commits=(3, 5), reviews=(0, 0))),
+        "acme/api": _repo(ts=_ts(commits=(7, 10))),
+        "acme/web": _repo(ts=_ts(commits=(3, 5))),
     })
     agg = _aggregate(metrics)
-    assert agg["team_share"]["commits"] == {"team": 10, "total": 15, "share": pytest.approx(10 / 15)}
-    # 0/0 + 0/0 aggregates to team=0, total=0, share=None (not division-by-zero).
-    assert agg["team_share"]["reviews_given"] == {"team": 0, "total": 0, "share": None}
+    assert agg["team_share"]["commits"] == {
+        "team":  {"commits": 10},
+        "total": {"commits": 15},
+        "share": pytest.approx(10 / 15),
+    }
+    # pr and comments were zero on both repos -> summed to all-zero sub-maps and share=None.
+    assert agg["team_share"]["pr"]["share"] is None
+    assert agg["team_share"]["pr"]["team"]["APPROVED"] == 0
+    assert agg["team_share"]["pr"]["total"]["pull_requests_opened"] == 0
+    assert agg["team_share"]["comments"]["share"] is None
 
 
 def test_aggregate_unions_truncation_flags() -> None:
@@ -136,7 +160,52 @@ def test_aggregate_skips_errored_repos_but_uses_healthy_ones() -> None:
     agg = _aggregate(metrics)
     assert agg is not None
     assert agg["per_user"]["alice"]["authoring"]["commits"] == 4
-    assert agg["team_share"]["commits"] == {"team": 4, "total": 8, "share": 0.5}
+    assert agg["team_share"]["commits"] == {
+        "team":  {"commits": 4},
+        "total": {"commits": 8},
+        "share": 0.5,
+    }
+
+
+def test_aggregate_sums_team_share_sub_metrics_per_layer() -> None:
+    # Two repos with different sub-metric mixes in the pr layer.
+    def repo_with_pr(opened_team, opened_total, approved_team, approved_total):
+        pr = {
+            "team": {
+                "pull_requests_opened": opened_team,
+                "pull_requests_merged": 0,
+                "APPROVED":             approved_team,
+                "CHANGES_REQUESTED":    0,
+                "COMMENTED":            0,
+            },
+            "total": {
+                "pull_requests_opened": opened_total,
+                "pull_requests_merged": 0,
+                "APPROVED":             approved_total,
+                "CHANGES_REQUESTED":    0,
+                "COMMENTED":            0,
+            },
+            "share": ((opened_team + approved_team)
+                     / (opened_total + approved_total)) if (opened_total + approved_total) else None,
+        }
+        return {
+            "per_user": {},
+            "team_share": {"commits": _ts()["commits"], "pr": pr, "comments": _ts()["comments"]},
+            "truncated": {},
+            "error": None,
+        }
+
+    metrics = _metrics({
+        "acme/api": repo_with_pr(2, 5, 3, 4),
+        "acme/web": repo_with_pr(1, 3, 5, 6),
+    })
+    agg = _aggregate(metrics)
+    pr = agg["team_share"]["pr"]
+    assert pr["team"]  == {"pull_requests_opened": 3, "pull_requests_merged": 0,
+                            "APPROVED": 8, "CHANGES_REQUESTED": 0, "COMMENTED": 0}
+    assert pr["total"] == {"pull_requests_opened": 8, "pull_requests_merged": 0,
+                            "APPROVED": 10, "CHANGES_REQUESTED": 0, "COMMENTED": 0}
+    assert pr["share"] == pytest.approx((3 + 8) / (8 + 10))
 
 
 # ---------- render (happy path) ----------

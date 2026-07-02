@@ -10,7 +10,12 @@ from pathlib import Path
 _AUTHORING_KEYS = ("commits", "pull_requests_opened", "pull_requests_merged", "issues_opened")
 _COLLAB_INT_KEYS = ("review_comments", "pr_conversation_comments", "issue_comments", "cross_team_reviews")
 _REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
-_TEAM_SHARE_BUCKETS = ("commits", "pull_requests_opened", "reviews_given", "comments")
+_TEAM_SHARE_SUB_METRICS = {
+    "commits":  ("commits",),
+    "pr":       ("pull_requests_opened", "pull_requests_merged",
+                 "APPROVED", "CHANGES_REQUESTED", "COMMENTED"),
+    "comments": ("review_comments", "pr_conversation_comments", "issue_comments"),
+}
 
 _ASSET_DIR = Path(__file__).parent / "assets"
 
@@ -42,10 +47,12 @@ def _aggregate(metrics: dict) -> dict | None:
     ts_repos = [v.get("team_share") for v in healthy.values() if v.get("team_share")]
     if ts_repos:
         team_share = {}
-        for bucket in _TEAM_SHARE_BUCKETS:
-            t = sum(ts[bucket]["team"] for ts in ts_repos)
-            n = sum(ts[bucket]["total"] for ts in ts_repos)
-            team_share[bucket] = {"team": t, "total": n, "share": (t / n) if n else None}
+        for layer, sub_keys in _TEAM_SHARE_SUB_METRICS.items():
+            team  = {k: sum(ts[layer]["team"].get(k, 0)  for ts in ts_repos) for k in sub_keys}
+            total = {k: sum(ts[layer]["total"].get(k, 0) for ts in ts_repos) for k in sub_keys}
+            t = sum(team.values())
+            n = sum(total.values())
+            team_share[layer] = {"team": team, "total": total, "share": (t / n) if n else None}
 
     truncated: dict[str, bool] = {}
     for v in healthy.values():
