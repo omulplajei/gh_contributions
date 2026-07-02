@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from calendar import monthrange
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from .github_client import (
@@ -192,6 +192,12 @@ def _write_error(repo_dir: Path, reason: str) -> None:
         else:
             child.unlink()
     (repo_dir / "_meta.json").write_text(json.dumps({"error": reason}))
+
+
+def _effective_end(today: date) -> date:
+    """Last day of the calendar month preceding ``today`` (UTC)."""
+    first_of_current = date(today.year, today.month, 1)
+    return first_of_current - timedelta(days=1)
 
 
 def _months_between(since: date, today: date) -> list[str]:

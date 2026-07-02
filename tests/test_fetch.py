@@ -74,6 +74,29 @@ def test_is_bucket_complete_malformed_meta(tmp_path: Path) -> None:
     assert _is_bucket_complete(tmp_path) is False
 
 
+def test_effective_end_returns_last_day_of_previous_month() -> None:
+    from gh_contributions.fetch import _effective_end
+    assert _effective_end(date(2026, 7, 15)) == date(2026, 6, 30)
+    assert _effective_end(date(2026, 7, 1))  == date(2026, 6, 30)
+    assert _effective_end(date(2026, 7, 31)) == date(2026, 6, 30)
+
+
+def test_effective_end_january_rolls_to_previous_december() -> None:
+    from gh_contributions.fetch import _effective_end
+    assert _effective_end(date(2026, 1, 1))  == date(2025, 12, 31)
+    assert _effective_end(date(2026, 1, 15)) == date(2025, 12, 31)
+
+
+def test_effective_end_march_after_leap_february() -> None:
+    from gh_contributions.fetch import _effective_end
+    assert _effective_end(date(2024, 3, 5)) == date(2024, 2, 29)
+
+
+def test_effective_end_march_after_non_leap_february() -> None:
+    from gh_contributions.fetch import _effective_end
+    assert _effective_end(date(2026, 3, 5)) == date(2026, 2, 28)
+
+
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
