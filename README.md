@@ -13,7 +13,6 @@ usernames:
 repos:
   - acme/api
 since: 2026-01-01
-until: 2026-06-30
 metrics:
   - authoring
   - collaboration
@@ -35,7 +34,25 @@ export GITHUB_TOKEN=<personal access token with repo:read>
 python3 -m gh_contributions.run
 ```
 
-Output: `out/<UTC-timestamp>/metrics.json`. Raw API pages are kept under `out/<UTC-timestamp>/raw/` for audit and reruns.
+Output: `out/<UTC-timestamp>/metrics.json`. Raw API responses are cached under `out/raw/<YYYY-MM>/<owner>__<repo>/` and reused across runs — see `## Raw-data cache` below.
+
+## Raw-data cache
+
+Raw API responses are stored under `out/raw/<YYYY-MM>/<owner>__<repo>/`, one bucket
+per (month, repo). Runs enumerate months from `since` to today (UTC) and only
+fetch buckets that are not already complete on disk. A bucket is complete when
+its `_meta.json` exists and contains no `error` key.
+
+To force a refresh of a specific bucket, delete it and re-run:
+
+```bash
+rm -rf out/raw/2026-07/acme__api
+python3 -m gh_contributions.run
+```
+
+The current calendar month is **not** auto-refreshed — once its bucket is on disk
+it stays until you delete it. Delete `out/raw/<current-month>/` (or a single
+repo inside it) between runs to pick up new activity within the current month.
 
 ## Report
 
