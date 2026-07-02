@@ -96,10 +96,42 @@ def test_collaboration_pr_vs_issue_comment_split() -> None:
 def test_team_share_happy_path() -> None:
     out = _load("team_share")
     share = out["repos"]["acme/api"]["team_share"]
-    assert share["commits"]              == {"team": 4, "total": 10, "share": pytest.approx(4 / 10)}
-    assert share["pull_requests_opened"] == {"team": 1, "total": 2,  "share": pytest.approx(1 / 2)}
-    assert share["reviews_given"]        == {"team": 2, "total": 3,  "share": pytest.approx(2 / 3)}
-    assert share["comments"]             == {"team": 3, "total": 4,  "share": pytest.approx(3 / 4)}
+
+    assert set(share) == {"commits", "pr", "comments"}
+
+    assert share["commits"] == {
+        "team":  {"commits": 4},
+        "total": {"commits": 10},
+        "share": pytest.approx(4 / 10),
+    }
+
+    assert share["pr"]["team"] == {
+        "pull_requests_opened": 1,
+        "pull_requests_merged": 1,
+        "APPROVED":             2,
+        "CHANGES_REQUESTED":    0,
+        "COMMENTED":            0,
+    }
+    assert share["pr"]["total"] == {
+        "pull_requests_opened": 2,
+        "pull_requests_merged": 2,
+        "APPROVED":             3,
+        "CHANGES_REQUESTED":    0,
+        "COMMENTED":            0,
+    }
+    assert share["pr"]["share"] == pytest.approx((1 + 1 + 2) / (2 + 2 + 3))
+
+    assert share["comments"]["team"] == {
+        "review_comments":          1,
+        "pr_conversation_comments": 1,
+        "issue_comments":           1,
+    }
+    assert share["comments"]["total"] == {
+        "review_comments":          2,
+        "pr_conversation_comments": 1,
+        "issue_comments":           1,
+    }
+    assert share["comments"]["share"] == pytest.approx((1 + 1 + 1) / (2 + 1 + 1))
 
 
 def test_team_share_zero_denominator_is_null(tmp_path) -> None:
@@ -116,17 +148,57 @@ def test_team_share_zero_denominator_is_null(tmp_path) -> None:
     repo_dir = tmp_path / "acme__api"
     repo_dir.mkdir()
     (repo_dir / "_meta.json").write_text("{}")
-    for f in ("commits.json", "prs_by_created.json", "prs_updated.json",
-              "review_comments.json", "issue_comments.json"):
+    for f in ("commits.json", "prs_by_created.json", "prs_by_merged.json",
+              "prs_updated.json", "review_comments.json", "issue_comments.json"):
         (repo_dir / f).write_text("[]")
     (repo_dir / "reviews").mkdir()
 
     out = compute(tmp_path, cfg)
     share = out["repos"]["acme/api"]["team_share"]
-    assert share["commits"]              == {"team": 0, "total": 0, "share": None}
-    assert share["pull_requests_opened"] == {"team": 0, "total": 0, "share": None}
-    assert share["reviews_given"]        == {"team": 0, "total": 0, "share": None}
-    assert share["comments"]             == {"team": 0, "total": 0, "share": None}
+
+    assert share["commits"] == {
+        "team":  {"commits": 0},
+        "total": {"commits": 0},
+        "share": None,
+    }
+    assert share["pr"]["share"] is None
+    assert share["pr"]["team"]  == {"pull_requests_opened": 0, "pull_requests_merged": 0,
+                                     "APPROVED": 0, "CHANGES_REQUESTED": 0, "COMMENTED": 0}
+    assert share["pr"]["total"] == {"pull_requests_opened": 0, "pull_requests_merged": 0,
+                                     "APPROVED": 0, "CHANGES_REQUESTED": 0, "COMMENTED": 0}
+    assert share["comments"]["share"] is None
+    assert share["comments"]["team"]  == {"review_comments": 0, "pr_conversation_comments": 0, "issue_comments": 0}
+    assert share["comments"]["total"] == {"review_comments": 0, "pr_conversation_comments": 0, "issue_comments": 0}
+
+
+def test_team_share_pr_reviews_windowed(tmp_path) -> None:
+    from gh_contributions.config import Config
+    from datetime import date
+    import json as _json
+
+    cfg = Config(
+        usernames=["alice"],
+        repos=["acme/api"],
+        since=date(2026, 1, 1),
+        until=date(2026, 6, 30),
+        metrics=["team_share"],
+    )
+    repo_dir = tmp_path / "acme__api"
+    repo_dir.mkdir()
+    (repo_dir / "_meta.json").write_text("{}")
+    for f in ("commits.json", "prs_by_created.json", "prs_by_merged.json",
+              "prs_updated.json", "review_comments.json", "issue_comments.json"):
+        (repo_dir / f).write_text("[]")
+    (repo_dir / "reviews").mkdir()
+    # Two reviews: one in-window (counted), one before window (excluded from BOTH team and total).
+    (repo_dir / "reviews" / "1.json").write_text(_json.dumps([
+        {"user": {"login": "alice"}, "state": "APPROVED", "submitted_at": "2026-02-10T10:00:00Z"},
+        {"user": {"login": "eve"},   "state": "APPROVED", "submitted_at": "2025-12-31T10:00:00Z"},
+    ]))
+
+    share = compute(tmp_path, cfg)["repos"]["acme/api"]["team_share"]
+    assert share["pr"]["team"]["APPROVED"]  == 1
+    assert share["pr"]["total"]["APPROVED"] == 1
 
 
 def test_repo_error_propagates() -> None:

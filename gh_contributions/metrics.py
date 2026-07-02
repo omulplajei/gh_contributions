@@ -112,6 +112,14 @@ def _read_json(path: Path, *, default):
 _REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
 
 
+_TEAM_SHARE_SUB_METRICS = {
+    "commits":  ("commits",),
+    "pr":       ("pull_requests_opened", "pull_requests_merged",
+                 "APPROVED", "CHANGES_REQUESTED", "COMMENTED"),
+    "comments": ("review_comments", "pr_conversation_comments", "issue_comments"),
+}
+
+
 def _window_bounds(config: Config) -> tuple[datetime, datetime]:
     lo = datetime.combine(config.since, time.min, tzinfo=timezone.utc)
     hi = datetime.combine(config.until, time(23, 59, 59), tzinfo=timezone.utc)
@@ -215,52 +223,111 @@ def _apply_team_share(repo_dir: Path, config: Config, out: dict) -> None:
     lo, hi = _window_bounds(config)
 
     # commits — Search results are already window-filtered by the query.
-    commits = _read_json(repo_dir / "commits.json", default=[])
-    total_commits = len(commits)
-    team_commits = sum(1 for c in commits if _author_login(c, "commits.json") in team)
+    commits_team = 0
+    commits_total = 0
+    for c in _read_json(repo_dir / "commits.json", default=[]):
+        commits_total += 1
+        if _author_login(c, "commits.json") in team:
+            commits_team += 1
 
-    # prs_by_created — window-filtered by query.
-    prs_opened = _read_json(repo_dir / "prs_by_created.json", default=[])
-    total_prs = len(prs_opened)
-    team_prs = sum(1 for p in prs_opened if _author_login(p, "prs_by_created.json") in team)
+    # PR opened — window-filtered by search query.
+    opened_team, opened_total = 0, 0
+    for p in _read_json(repo_dir / "prs_by_created.json", default=[]):
+        opened_total += 1
+        if _author_login(p, "prs_by_created.json") in team:
+            opened_team += 1
 
-    # reviews — sum across all PRs' reviews files, filter to counted states + window.
-    total_reviews = 0
-    team_reviews = 0
+    # PR merged — window-filtered by search query.
+    merged_team, merged_total = 0, 0
+    for p in _read_json(repo_dir / "prs_by_merged.json", default=[]):
+        merged_total += 1
+        if _author_login(p, "prs_by_merged.json") in team:
+            merged_team += 1
+
+    # Reviews by state, windowed.
+    rev_team = {s: 0 for s in _REVIEW_STATES}
+    rev_total = {s: 0 for s in _REVIEW_STATES}
     reviews_dir = repo_dir / "reviews"
     if reviews_dir.is_dir():
         for review_file in sorted(reviews_dir.glob("*.json")):
             for r in _read_json(review_file, default=[]):
-                if r.get("state") not in _REVIEW_STATES:
+                state = r.get("state")
+                if state not in _REVIEW_STATES:
                     continue
                 if not _in_window(r.get("submitted_at"), lo, hi):
                     continue
-                total_reviews += 1
+                rev_total[state] += 1
                 if ((r.get("user") or {}).get("login")) in team:
-                    team_reviews += 1
+                    rev_team[state] += 1
 
-    # comments — review_comments + issue_comments (both PR-conv and issue), window-filtered.
-    total_comments = 0
-    team_comments = 0
-    for src in ("review_comments.json", "issue_comments.json"):
-        for c in _read_json(repo_dir / src, default=[]):
-            if not _in_window(c.get("created_at"), lo, hi):
-                continue
-            total_comments += 1
-            if ((c.get("user") or {}).get("login")) in team:
-                team_comments += 1
+    # Review comments (inline PR review comments), windowed.
+    rc_team, rc_total = 0, 0
+    for c in _read_json(repo_dir / "review_comments.json", default=[]):
+        if not _in_window(c.get("created_at"), lo, hi):
+            continue
+        rc_total += 1
+        if ((c.get("user") or {}).get("login")) in team:
+            rc_team += 1
+
+    # Issue comments: split by parent number against prs_updated.
+    prs_updated = _read_json(repo_dir / "prs_updated.json", default=[])
+    known_pr_numbers = {
+        p.get("number") for p in prs_updated if isinstance(p.get("number"), int)
+    }
+    prc_team, prc_total = 0, 0
+    ic_team, ic_total = 0, 0
+    for c in _read_json(repo_dir / "issue_comments.json", default=[]):
+        if not _in_window(c.get("created_at"), lo, hi):
+            continue
+        parent = _parent_number(c.get("issue_url"))
+        is_pr_conv = parent is not None and parent in known_pr_numbers
+        login = ((c.get("user") or {}).get("login")) or ""
+        is_team = login in team
+        if is_pr_conv:
+            prc_total += 1
+            if is_team:
+                prc_team += 1
+        else:
+            ic_total += 1
+            if is_team:
+                ic_team += 1
+
+    def _layer(team_map: dict[str, int], total_map: dict[str, int]) -> dict:
+        t = sum(team_map.values())
+        n = sum(total_map.values())
+        return {"team": team_map, "total": total_map, "share": (t / n) if n else None}
 
     out["team_share"] = {
-        "commits":              _bucket(team_commits, total_commits),
-        "pull_requests_opened": _bucket(team_prs, total_prs),
-        "reviews_given":        _bucket(team_reviews, total_reviews),
-        "comments":             _bucket(team_comments, total_comments),
-    }
-
-
-def _bucket(team_n: int, total_n: int) -> dict:
-    return {
-        "team": team_n,
-        "total": total_n,
-        "share": (team_n / total_n) if total_n else None,
+        "commits": _layer(
+            {"commits": commits_team},
+            {"commits": commits_total},
+        ),
+        "pr": _layer(
+            {
+                "pull_requests_opened": opened_team,
+                "pull_requests_merged": merged_team,
+                "APPROVED":             rev_team["APPROVED"],
+                "CHANGES_REQUESTED":    rev_team["CHANGES_REQUESTED"],
+                "COMMENTED":            rev_team["COMMENTED"],
+            },
+            {
+                "pull_requests_opened": opened_total,
+                "pull_requests_merged": merged_total,
+                "APPROVED":             rev_total["APPROVED"],
+                "CHANGES_REQUESTED":    rev_total["CHANGES_REQUESTED"],
+                "COMMENTED":            rev_total["COMMENTED"],
+            },
+        ),
+        "comments": _layer(
+            {
+                "review_comments":          rc_team,
+                "pr_conversation_comments": prc_team,
+                "issue_comments":           ic_team,
+            },
+            {
+                "review_comments":          rc_total,
+                "pr_conversation_comments": prc_total,
+                "issue_comments":           ic_total,
+            },
+        ),
     }
