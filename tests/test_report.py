@@ -330,7 +330,7 @@ def test_render_no_truncation_banner_when_nothing_truncated() -> None:
 
 def test_render_errored_repo_shows_error_banner_in_its_tab() -> None:
     metrics = _metrics({
-        "healthy": _repo(ts=_ts()),
+        "healthy": _repo(ts=_ts(commits=(1, 2), pr=(1, 2), comments=(1, 2))),
         "broken":  _repo(error="not_found"),
     })
     html = render(metrics)
@@ -340,12 +340,32 @@ def test_render_errored_repo_shows_error_banner_in_its_tab() -> None:
     assert "<canvas" not in broken_section
     healthy_section = _extract_section(html, "healthy")
     assert "error-banner" not in healthy_section
-    assert healthy_section.count("<canvas") == 2  # team_share + activity
+    assert healthy_section.count("<canvas") == 4  # 3 team_share pies + 1 activity
+
+
+def test_render_zero_total_layer_shows_pie_placeholder() -> None:
+    # commits has data, pr and comments are both zero -> two of the three pies
+    # render as placeholder cards, one as a canvas.
+    metrics = _metrics({
+        "acme/api": _repo(ts=_ts(commits=(3, 5), pr=(0, 0), comments=(0, 0))),
+    })
+    html = render(metrics)
+    section = _extract_section(html, "acme/api")
+
+    # Only the commits pie renders as a canvas.
+    assert section.count('data-chart="team_share"') == 1
+    assert 'data-layer="commits"' in section
+    assert 'data-layer="pr"' not in section
+    assert 'data-layer="comments"' not in section
+
+    # Placeholder card text present for the two empty layers.
+    assert section.count("pie-empty") == 2
+    assert section.count("no data in window") == 2
 
 
 def test_render_layer_disabled_placeholder() -> None:
-    # Only 'authoring' enabled -> team_share cell is a placeholder,
-    # activity cell always renders (missing collaboration counts as 0).
+    # Only 'authoring' enabled -> team_share row is one wide placeholder card,
+    # activity cell always renders.
     metrics = _metrics(
         {"acme/api": _repo(commits_by_user={"alice": {"commits": 1}}, ts=_ts())},
         layers=("authoring",),
@@ -353,7 +373,9 @@ def test_render_layer_disabled_placeholder() -> None:
     html = render(metrics)
     section = _extract_section(html, "acme/api")
     assert 'data-chart="activity"' in section
-    assert section.count("layer-disabled") == 1  # team_share only
+    assert 'data-chart="team_share"' not in section
+    assert section.count("layer-disabled") == 1  # single wide row placeholder
+    assert "team-share-row" not in section        # row wrapper not emitted when disabled
 
 
 def _extract_section(html: str, repo: str) -> str:

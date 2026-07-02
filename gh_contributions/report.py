@@ -16,6 +16,11 @@ _TEAM_SHARE_SUB_METRICS = {
                  "APPROVED", "CHANGES_REQUESTED", "COMMENTED"),
     "comments": ("review_comments", "pr_conversation_comments", "issue_comments"),
 }
+_LAYER_TITLE = {
+    "commits":  "Commits",
+    "pr":       "PR activity",
+    "comments": "Comments",
+}
 
 _ASSET_DIR = Path(__file__).parent / "assets"
 
@@ -167,16 +172,45 @@ def _tab_body(name: str, repo: dict, layers: set, active: bool) -> str:
             f'  <div class="error-banner">{_esc(label)}: {_esc(repo["error"])}</div>'
             f'</section>'
         )
-    cells = [
-        _cell("team_share", "Team share", "team_share", name, layers),
-        _cell("activity",   "Activity",   None,         name, layers),
+    parts = [
+        _team_share_row(name, repo, layers),
+        _cell("activity", "Activity", None, name, layers),
     ]
     return (
         f'<section data-repo="{name}"{hidden}>'
-        f'  <div class="stack">{"".join(cells)}</div>'
+        f'  <div class="stack">{"".join(parts)}</div>'
         f'  <table class="details" data-repo="{name}"></table>'
         f'</section>'
     )
+
+
+def _team_share_row(repo_name: str, repo: dict, layers: set) -> str:
+    if "team_share" not in layers:
+        return (
+            '<div class="cell layer-disabled">'
+            '<strong>Team share</strong>'
+            '<p>Layer <code>team_share</code> disabled in config.</p>'
+            "</div>"
+        )
+    ts = repo.get("team_share") or {}
+    pies: list[str] = []
+    for layer in _TEAM_SHARE_SUB_METRICS:
+        share = (ts.get(layer) or {}).get("share")
+        title = _LAYER_TITLE[layer]
+        if share is None:
+            pies.append(
+                '<div class="cell cell-pie pie-empty">'
+                f'<strong>{_esc(title)}</strong>'
+                '<p>no data in window</p>'
+                "</div>"
+            )
+        else:
+            pies.append(
+                '<div class="cell cell-pie">'
+                f'<canvas data-chart="team_share" data-repo="{repo_name}" data-layer="{layer}"></canvas>'
+                "</div>"
+            )
+    return f'<div class="team-share-row">{"".join(pies)}</div>'
 
 
 def _cell(chart_key: str, title: str, required_layer: str | None, repo_name: str, layers: set) -> str:
@@ -187,7 +221,7 @@ def _cell(chart_key: str, title: str, required_layer: str | None, repo_name: str
             f'<p>Layer <code>{_esc(required_layer)}</code> disabled in config.</p>'
             "</div>"
         )
-    extra_class = " cell-team-share" if chart_key == "team_share" else " cell-activity" if chart_key == "activity" else ""
+    extra_class = " cell-activity" if chart_key == "activity" else ""
     return (
         f'<div class="cell{extra_class}">'
         f'<canvas data-chart="{chart_key}" data-repo="{repo_name}"></canvas>'
@@ -222,8 +256,10 @@ nav#tabs { display: flex; gap: 4px; border-bottom: 1px solid #ddd; margin-top: 1
 main { padding-top: 12px; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .cell { border: 1px solid #eee; padding: 12px; }
-.cell-team-share { max-width: 480px; }
-.cell-team-share canvas { max-height: 320px; }
+.team-share-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: 16px; }
+.cell-pie { flex: 1 1 240px; max-width: 320px; }
+.cell-pie canvas { max-height: 260px; }
+.pie-empty { color: #888; text-align: center; padding: 24px 12px; }
 .layer-note { color: #666; font-size: 12px; margin: 0 0 8px; }
 table.details { border-collapse: collapse; margin-top: 16px; width: 100%; }
 table.details th, table.details td { border: 1px solid #eee; padding: 4px 8px; text-align: right; }
