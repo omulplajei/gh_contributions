@@ -1,0 +1,4 @@
+[
+  {"sha": "m1", "author": {"login": "alice"}, "commit": {"author": {"date": "2026-05-05T10:00:00Z"}}},
+  {"sha": "m2", "author": {"login": "bob"},   "commit": {"author": {"date": "2026-05-06T10:00:00Z"}}}
+]

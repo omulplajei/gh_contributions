@@ -1,0 +1,10 @@
+{
+  "commits":          {"total_count": 1500, "truncated": true},
+  "prs_by_created":   {"total_count": 0,    "truncated": false},
+  "prs_by_merged":    {"total_count": 0,    "truncated": false},
+  "issues_by_created":{"total_count": 0,    "truncated": false},
+  "prs_updated":      {"total_count": 1,    "truncated": false},
+  "reviews":          {"total_count": 1,    "truncated": false},
+  "review_comments":  {"total_count": 0,    "truncated": false},
+  "issue_comments":   {"total_count": 0,    "truncated": false}
+}

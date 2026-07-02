@@ -1,0 +1,9 @@
+usernames:
+  - alice
+  - bob
+repos:
+  - acme/api
+since: 2026-05-01
+metrics:
+  - authoring
+  - team_share

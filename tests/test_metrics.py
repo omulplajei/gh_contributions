@@ -234,3 +234,25 @@ def test_team_share_only_layer_propagates_truncation() -> None:
     repo = out["repos"]["acme/api"]
     # With only team_share enabled, truncated must still propagate.
     assert repo["truncated"].get("commits") is True
+
+
+def test_multi_month_authoring_sums_across_months() -> None:
+    out = _load("multi_month", today=date(2026, 6, 30))
+    users = out["repos"]["acme/api"]["per_user"]
+    # May: alice 1 commit, bob 1 commit. June: alice 2 commits, bob 0. Total: alice 3, bob 1.
+    assert users["alice"]["authoring"]["commits"] == 3
+    assert users["bob"]["authoring"]["commits"] == 1
+
+
+def test_multi_month_truncation_ored_across_months() -> None:
+    out = _load("multi_month", today=date(2026, 6, 30))
+    # May's _meta marks commits truncated; June's does not.
+    assert out["repos"]["acme/api"]["truncated"].get("commits") is True
+
+
+def test_multi_month_pr_reviews_deduplicated_by_pr_number() -> None:
+    out = _load("multi_month", today=date(2026, 6, 30))
+    # PR 1 has reviews/1.json in BOTH May and June with the same single APPROVED review.
+    # Merge is last-writer-wins keyed by PR number; must not double-count.
+    share = out["repos"]["acme/api"]["team_share"]
+    assert share["pr"]["total"]["APPROVED"] == 1
