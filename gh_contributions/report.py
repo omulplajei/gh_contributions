@@ -57,7 +57,35 @@ def _aggregate(metrics: dict) -> dict | None:
             total = {k: sum(ts[layer]["total"].get(k, 0) for ts in ts_repos) for k in sub_keys}
             t = sum(team.values())
             n = sum(total.values())
-            team_share[layer] = {"team": team, "total": total, "share": (t / n) if n else None}
+
+            months_seen: set[str] = set()
+            for ts in ts_repos:
+                months_seen.update((ts[layer].get("by_month") or {}).keys())
+            by_month: dict[str, dict] = {}
+            for m in sorted(months_seen):
+                m_team  = {k: 0 for k in sub_keys}
+                m_total = {k: 0 for k in sub_keys}
+                for ts in ts_repos:
+                    bm = (ts[layer].get("by_month") or {}).get(m)
+                    if not bm:
+                        continue
+                    for k in sub_keys:
+                        m_team[k]  += bm["team"].get(k, 0)
+                        m_total[k] += bm["total"].get(k, 0)
+                mt = sum(m_team.values())
+                mn = sum(m_total.values())
+                by_month[m] = {
+                    "team":  m_team,
+                    "total": m_total,
+                    "share": (mt / mn) if mn else None,
+                }
+
+            team_share[layer] = {
+                "team":     team,
+                "total":    total,
+                "share":    (t / n) if n else None,
+                "by_month": by_month,
+            }
 
     truncated: dict[str, bool] = {}
     for v in healthy.values():

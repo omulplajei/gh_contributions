@@ -42,24 +42,28 @@ def _repo(commits_by_user=None, ts=None, truncated=None, error=None):
     }
 
 
-def _ts(commits=(0, 0), pr=(0, 0), comments=(0, 0)):
+def _ts(commits=(0, 0), pr=(0, 0), comments=(0, 0), by_month=None):
     """Build a new-shape team_share block. Puts the (team, total) totals in
-    the first sub-key of each layer; other sub-keys are 0."""
-    def layer(pair, sub_keys):
+    the first sub-key of each layer; other sub-keys are 0.
+    `by_month` is a dict keyed by layer name, each value being the by_month
+    dict to attach to that layer. Missing layers get an empty by_month."""
+    by_month = by_month or {}
+    def layer(pair, sub_keys, layer_name):
         team_t, total_t = pair
         team_map  = {k: 0 for k in sub_keys}
         total_map = {k: 0 for k in sub_keys}
         team_map[sub_keys[0]]  = team_t
         total_map[sub_keys[0]] = total_t
         return {
-            "team":  team_map,
-            "total": total_map,
-            "share": (team_t / total_t) if total_t else None,
+            "team":     team_map,
+            "total":    total_map,
+            "share":    (team_t / total_t) if total_t else None,
+            "by_month": by_month.get(layer_name, {}),
         }
     return {
-        "commits":  layer(commits,  _TEAM_SHARE_SUB_METRICS["commits"]),
-        "pr":       layer(pr,       _TEAM_SHARE_SUB_METRICS["pr"]),
-        "comments": layer(comments, _TEAM_SHARE_SUB_METRICS["comments"]),
+        "commits":  layer(commits,  _TEAM_SHARE_SUB_METRICS["commits"],  "commits"),
+        "pr":       layer(pr,       _TEAM_SHARE_SUB_METRICS["pr"],       "pr"),
+        "comments": layer(comments, _TEAM_SHARE_SUB_METRICS["comments"], "comments"),
     }
 
 
@@ -121,11 +125,10 @@ def test_aggregate_recomputes_team_share_ratios() -> None:
         "acme/web": _repo(ts=_ts(commits=(3, 5))),
     })
     agg = _aggregate(metrics)
-    assert agg["team_share"]["commits"] == {
-        "team":  {"commits": 10},
-        "total": {"commits": 15},
-        "share": pytest.approx(10 / 15),
-    }
+    assert agg["team_share"]["commits"]["team"]  == {"commits": 10}
+    assert agg["team_share"]["commits"]["total"] == {"commits": 15}
+    assert agg["team_share"]["commits"]["share"] == pytest.approx(10 / 15)
+    assert "by_month" in agg["team_share"]["commits"]
     # pr and comments were zero on both repos -> summed to all-zero sub-maps and share=None.
     assert agg["team_share"]["pr"]["share"] is None
     assert agg["team_share"]["pr"]["team"]["APPROVED"] == 0
@@ -160,11 +163,10 @@ def test_aggregate_skips_errored_repos_but_uses_healthy_ones() -> None:
     agg = _aggregate(metrics)
     assert agg is not None
     assert agg["per_user"]["alice"]["authoring"]["commits"] == 4
-    assert agg["team_share"]["commits"] == {
-        "team":  {"commits": 4},
-        "total": {"commits": 8},
-        "share": 0.5,
-    }
+    assert agg["team_share"]["commits"]["team"]  == {"commits": 4}
+    assert agg["team_share"]["commits"]["total"] == {"commits": 8}
+    assert agg["team_share"]["commits"]["share"] == 0.5
+    assert "by_month" in agg["team_share"]["commits"]
 
 
 def test_aggregate_sums_team_share_sub_metrics_per_layer() -> None:
@@ -190,7 +192,11 @@ def test_aggregate_sums_team_share_sub_metrics_per_layer() -> None:
         }
         return {
             "per_user": {},
-            "team_share": {"commits": _ts()["commits"], "pr": pr, "comments": _ts()["comments"]},
+            "team_share": {
+                "commits":  {**_ts()["commits"]},
+                "pr":       {**pr, "by_month": {}},
+                "comments": {**_ts()["comments"]},
+            },
             "truncated": {},
             "error": None,
         }
@@ -206,6 +212,31 @@ def test_aggregate_sums_team_share_sub_metrics_per_layer() -> None:
     assert pr["total"] == {"pull_requests_opened": 8, "pull_requests_merged": 0,
                             "APPROVED": 10, "CHANGES_REQUESTED": 0, "COMMENTED": 0}
     assert pr["share"] == pytest.approx((3 + 8) / (8 + 10))
+
+
+def test_aggregate_sums_team_share_by_month_across_repos() -> None:
+    m1 = {
+        "commits": {
+            "2026-02": {"team": {"commits": 2}, "total": {"commits": 5}, "share": 0.4},
+            "2026-03": {"team": {"commits": 0}, "total": {"commits": 0}, "share": None},
+        },
+    }
+    m2 = {
+        "commits": {
+            "2026-02": {"team": {"commits": 1}, "total": {"commits": 3}, "share": 1/3},
+            "2026-03": {"team": {"commits": 0}, "total": {"commits": 0}, "share": None},
+        },
+    }
+    metrics = _metrics({
+        "acme/api": _repo(ts=_ts(commits=(2, 5), by_month=m1)),
+        "acme/web": _repo(ts=_ts(commits=(1, 3), by_month=m2)),
+    })
+    agg = _aggregate(metrics)
+    bm = agg["team_share"]["commits"]["by_month"]
+
+    assert set(bm) == {"2026-02", "2026-03"}
+    assert bm["2026-02"] == {"team": {"commits": 3}, "total": {"commits": 8}, "share": pytest.approx(3 / 8)}
+    assert bm["2026-03"] == {"team": {"commits": 0}, "total": {"commits": 0}, "share": None}
 
 
 # ---------- render (happy path) ----------
