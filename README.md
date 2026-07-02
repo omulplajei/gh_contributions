@@ -12,6 +12,9 @@ usernames:
   - bob
 repos:
   - acme/api
+# Analysis window starts on this date (UTC) and ends on the last day of the
+# previous calendar month. The current month is excluded so we don't cache
+# partial data.
 since: 2026-01-01
 metrics:
   - authoring
@@ -50,9 +53,10 @@ rm -rf out/raw/2026-07/acme__api
 python3 -m gh_contributions.run
 ```
 
-The current calendar month is **not** auto-refreshed — once its bucket is on disk
-it stays until you delete it. Delete `out/raw/<current-month>/` (or a single
-repo inside it) between runs to pick up new activity within the current month.
+The current calendar month is never fetched or cached — the analysis window ends
+on the last day of the previous month (UTC). This keeps every cached bucket a
+complete, immutable month. To see activity for the current month, wait until it
+ends.
 
 ## Report
 
