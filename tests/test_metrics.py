@@ -100,11 +100,10 @@ def test_team_share_happy_path() -> None:
 
     assert set(share) == {"commits", "pr", "comments"}
 
-    assert share["commits"] == {
-        "team":  {"commits": 4},
-        "total": {"commits": 10},
-        "share": pytest.approx(4 / 10),
-    }
+    assert share["commits"]["team"]  == {"commits": 4}
+    assert share["commits"]["total"] == {"commits": 10}
+    assert share["commits"]["share"] == pytest.approx(4 / 10)
+    assert "by_month" in share["commits"]
 
     assert share["pr"]["team"] == {
         "pull_requests_opened": 1,
@@ -156,11 +155,10 @@ def test_team_share_zero_denominator_is_null(tmp_path) -> None:
     out = compute(tmp_path, cfg, today=date(2026, 3, 15))
     share = out["repos"]["acme/api"]["team_share"]
 
-    assert share["commits"] == {
-        "team":  {"commits": 0},
-        "total": {"commits": 0},
-        "share": None,
-    }
+    assert share["commits"]["team"]  == {"commits": 0}
+    assert share["commits"]["total"] == {"commits": 0}
+    assert share["commits"]["share"] is None
+    assert "by_month" in share["commits"]
     assert share["pr"]["share"] is None
     assert share["pr"]["team"]  == {"pull_requests_opened": 0, "pull_requests_merged": 0,
                                      "APPROVED": 0, "CHANGES_REQUESTED": 0, "COMMENTED": 0}
@@ -280,3 +278,52 @@ def test_partial_error_all_months_failed_surfaces_single_error() -> None:
     repo = out["repos"]["acme/api"]
     assert repo["per_user"] is None
     assert repo["error"] == "not_found"
+
+
+def test_team_share_by_month_present_for_every_month(tmp_path) -> None:
+    from gh_contributions.config import Config
+    import json as _json
+
+    cfg = Config(
+        usernames=["alice"],
+        repos=["acme/api"],
+        since=date(2026, 2, 1),
+        metrics=["team_share"],
+    )
+    # Month 2026-02 has real activity; 2026-03 has an empty bucket.
+    for m in ("2026-02", "2026-03"):
+        bucket = tmp_path / m / "acme__api"
+        bucket.mkdir(parents=True)
+        (bucket / "_meta.json").write_text("{}")
+        for f in ("commits.json", "prs_by_created.json", "prs_by_merged.json",
+                  "prs_updated.json", "review_comments.json", "issue_comments.json"):
+            (bucket / f).write_text("[]")
+        (bucket / "reviews").mkdir()
+
+    (tmp_path / "2026-02" / "acme__api" / "commits.json").write_text(_json.dumps([
+        {"author": {"login": "alice"}, "committer": {"date": "2026-02-05T10:00:00Z"}},
+        {"author": {"login": "eve"},   "committer": {"date": "2026-02-06T10:00:00Z"}},
+    ]))
+
+    out = compute(tmp_path, cfg, today=date(2026, 4, 15))
+    share = out["repos"]["acme/api"]["team_share"]
+
+    assert set(share["commits"]["by_month"]) == {"2026-02", "2026-03"}
+
+    feb = share["commits"]["by_month"]["2026-02"]
+    assert feb == {"team": {"commits": 1}, "total": {"commits": 2}, "share": 0.5}
+
+    mar = share["commits"]["by_month"]["2026-03"]
+    assert mar == {"team": {"commits": 0}, "total": {"commits": 0}, "share": None}
+
+
+def test_team_share_by_month_sum_equals_whole_window() -> None:
+    out = _load("team_share")
+    share = out["repos"]["acme/api"]["team_share"]
+    for layer in ("commits", "pr", "comments"):
+        by_month = share[layer]["by_month"]
+        for k in share[layer]["team"]:
+            assert share[layer]["team"][k] == sum(m["team"][k] for m in by_month.values())
+        for k in share[layer]["total"]:
+            assert share[layer]["total"][k] == sum(m["total"][k] for m in by_month.values())
+

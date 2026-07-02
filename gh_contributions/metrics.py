@@ -304,57 +304,118 @@ def _apply_team_share(
     today: date,
     out: dict,
 ) -> None:
+    layers_sub_keys: dict[str, tuple[str, ...]] = {
+        "commits":  ("commits",),
+        "pr":       ("pull_requests_opened", "pull_requests_merged",
+                     "APPROVED", "CHANGES_REQUESTED", "COMMENTED"),
+        "comments": ("review_comments", "pr_conversation_comments", "issue_comments"),
+    }
+
+    def _empty_layer(sub_keys: tuple[str, ...]) -> dict:
+        return {
+            "team":  {k: 0 for k in sub_keys},
+            "total": {k: 0 for k in sub_keys},
+            "share": None,
+        }
+
+    good_set = set(months)
+    all_months = _months_between(config.since, today)
+
+    by_month: dict[str, dict[str, dict]] = {}
+    for m in all_months:
+        if m in good_set:
+            by_month[m] = _compute_month_team_share(
+                raw_root, m, owner, name, config, layers_sub_keys,
+            )
+        else:
+            by_month[m] = {layer: _empty_layer(subs)
+                           for layer, subs in layers_sub_keys.items()}
+
+    aggregate: dict[str, dict] = {}
+    for layer, subs in layers_sub_keys.items():
+        team  = {k: sum(by_month[m][layer]["team"][k]  for m in all_months) for k in subs}
+        total = {k: sum(by_month[m][layer]["total"][k] for m in all_months) for k in subs}
+        t = sum(team.values())
+        n = sum(total.values())
+        aggregate[layer] = {
+            "team":     team,
+            "total":    total,
+            "share":    (t / n) if n else None,
+            "by_month": {m: by_month[m][layer] for m in all_months},
+        }
+
+    out["team_share"] = aggregate
+
+
+def _compute_month_team_share(
+    raw_root: Path,
+    month: str,
+    owner: str,
+    name: str,
+    config: Config,
+    layers_sub_keys: dict[str, tuple[str, ...]],
+) -> dict:
+    from calendar import monthrange
+
     team = set(config.usernames)
-    lo, hi = _window_bounds(config, today)
+    y_s, mo_s = month.split("-", 1)
+    y, mo = int(y_s), int(mo_s)
+    last_day = monthrange(y, mo)[1]
+    lo = datetime.fromisoformat(f"{month}-01T00:00:00+00:00")
+    hi = datetime.fromisoformat(f"{month}-{last_day:02d}T23:59:59+00:00")
+
+    def _in_month(ts: str | None) -> bool:
+        d = _parse_ts(ts)
+        return d is not None and lo <= d <= hi
 
     commits_team = 0
     commits_total = 0
-    for c in _load_endpoint(raw_root, months, owner, name, "commits.json"):
+    for c in _load_endpoint(raw_root, [month], owner, name, "commits.json"):
         commits_total += 1
         if _author_login(c, "commits.json") in team:
             commits_team += 1
 
     opened_team, opened_total = 0, 0
-    for p in _load_endpoint(raw_root, months, owner, name, "prs_by_created.json"):
+    for p in _load_endpoint(raw_root, [month], owner, name, "prs_by_created.json"):
         opened_total += 1
         if _author_login(p, "prs_by_created.json") in team:
             opened_team += 1
 
     merged_team, merged_total = 0, 0
-    for p in _load_endpoint(raw_root, months, owner, name, "prs_by_merged.json"):
+    for p in _load_endpoint(raw_root, [month], owner, name, "prs_by_merged.json"):
         merged_total += 1
         if _author_login(p, "prs_by_merged.json") in team:
             merged_team += 1
 
     rev_team = {s: 0 for s in _REVIEW_STATES}
     rev_total = {s: 0 for s in _REVIEW_STATES}
-    for reviews in _load_reviews(raw_root, months, owner, name).values():
+    for reviews in _load_reviews(raw_root, [month], owner, name).values():
         for r in reviews:
             state = r.get("state")
             if state not in _REVIEW_STATES:
                 continue
-            if not _in_window(r.get("submitted_at"), lo, hi):
+            if not _in_month(r.get("submitted_at")):
                 continue
             rev_total[state] += 1
             if ((r.get("user") or {}).get("login")) in team:
                 rev_team[state] += 1
 
     rc_team, rc_total = 0, 0
-    for c in _load_endpoint(raw_root, months, owner, name, "review_comments.json"):
-        if not _in_window(c.get("created_at"), lo, hi):
+    for c in _load_endpoint(raw_root, [month], owner, name, "review_comments.json"):
+        if not _in_month(c.get("created_at")):
             continue
         rc_total += 1
         if ((c.get("user") or {}).get("login")) in team:
             rc_team += 1
 
-    prs_updated = _load_endpoint(raw_root, months, owner, name, "prs_updated.json")
+    prs_updated = _load_endpoint(raw_root, [month], owner, name, "prs_updated.json")
     known_pr_numbers = {
         p.get("number") for p in prs_updated if isinstance(p.get("number"), int)
     }
     prc_team, prc_total = 0, 0
     ic_team, ic_total = 0, 0
-    for c in _load_endpoint(raw_root, months, owner, name, "issue_comments.json"):
-        if not _in_window(c.get("created_at"), lo, hi):
+    for c in _load_endpoint(raw_root, [month], owner, name, "issue_comments.json"):
+        if not _in_month(c.get("created_at")):
             continue
         parent = _parent_number(c.get("issue_url"))
         is_pr_conv = parent is not None and parent in known_pr_numbers
@@ -374,7 +435,7 @@ def _apply_team_share(
         n = sum(total_map.values())
         return {"team": team_map, "total": total_map, "share": (t / n) if n else None}
 
-    out["team_share"] = {
+    return {
         "commits": _layer(
             {"commits": commits_team},
             {"commits": commits_total},
