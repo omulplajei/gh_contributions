@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from calendar import monthrange
 from datetime import date
 from pathlib import Path
 
@@ -191,3 +192,28 @@ def _write_error(repo_dir: Path, reason: str) -> None:
         else:
             child.unlink()
     (repo_dir / "_meta.json").write_text(json.dumps({"error": reason}))
+
+
+def _months_between(since: date, today: date) -> list[str]:
+    if since > today:
+        return []
+    out: list[str] = []
+    y, m = since.year, since.month
+    end_y, end_m = today.year, today.month
+    while (y, m) <= (end_y, end_m):
+        out.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m == 13:
+            m = 1
+            y += 1
+    return out
+
+
+def _month_bounds(month: str, today: date) -> tuple[date, date]:
+    year_s, mon_s = month.split("-", 1)
+    year, mon = int(year_s), int(mon_s)
+    first = date(year, mon, 1)
+    if (year, mon) == (today.year, today.month):
+        return first, today
+    last_day = monthrange(year, mon)[1]
+    return first, date(year, mon, last_day)
