@@ -217,3 +217,14 @@ def _month_bounds(month: str, today: date) -> tuple[date, date]:
         return first, today
     last_day = monthrange(year, mon)[1]
     return first, date(year, mon, last_day)
+
+
+def _is_bucket_complete(bucket_dir: Path) -> bool:
+    meta_path = bucket_dir / "_meta.json"
+    if not meta_path.exists():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text())
+    except json.JSONDecodeError:
+        return False
+    return isinstance(meta, dict) and "error" not in meta

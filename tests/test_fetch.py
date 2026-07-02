@@ -1,6 +1,9 @@
 from datetime import date
 
-from gh_contributions.fetch import _month_bounds, _months_between
+import json
+from pathlib import Path
+
+from gh_contributions.fetch import _is_bucket_complete, _month_bounds, _months_between
 
 
 def test_months_between_single_month() -> None:
@@ -43,3 +46,29 @@ def test_month_bounds_february_non_leap_year() -> None:
     lo, hi = _month_bounds("2026-02", today=date(2026, 6, 1))
     assert lo == date(2026, 2, 1)
     assert hi == date(2026, 2, 28)
+
+
+def test_is_bucket_complete_missing_dir(tmp_path: Path) -> None:
+    assert _is_bucket_complete(tmp_path / "nope") is False
+
+
+def test_is_bucket_complete_missing_meta(tmp_path: Path) -> None:
+    (tmp_path / "commits.json").write_text("[]")
+    assert _is_bucket_complete(tmp_path) is False
+
+
+def test_is_bucket_complete_valid_meta(tmp_path: Path) -> None:
+    (tmp_path / "_meta.json").write_text(json.dumps({
+        "commits": {"total_count": 0, "truncated": False},
+    }))
+    assert _is_bucket_complete(tmp_path) is True
+
+
+def test_is_bucket_complete_error_meta(tmp_path: Path) -> None:
+    (tmp_path / "_meta.json").write_text(json.dumps({"error": "not_found"}))
+    assert _is_bucket_complete(tmp_path) is False
+
+
+def test_is_bucket_complete_malformed_meta(tmp_path: Path) -> None:
+    (tmp_path / "_meta.json").write_text("{not json")
+    assert _is_bucket_complete(tmp_path) is False
