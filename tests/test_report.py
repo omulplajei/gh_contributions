@@ -172,19 +172,17 @@ def test_render_embeds_report_data_payload() -> None:
     assert repo["team_share"]["team"]   == [7, 2, 4, 5]
     assert repo["team_share"]["total"]  == [10, 5, 4, 8]
 
-    # authoring: users sorted by commits desc, parallel arrays per metric.
-    assert repo["authoring"]["users"] == ["alice", "bob"]
-    assert repo["authoring"]["commits"] == [5, 2]
-    assert repo["authoring"]["pull_requests_opened"] == [2, 0]
+    # activity block: users sorted by total desc.
+    # alice: commits 5 + PR 2 + reviews 3 = 10; comments 4 -> total 14.
+    # bob:   commits 2 + PR 0 + reviews 1 =  3; comments 1 -> total  4.
+    assert repo["activity"]["users"] == ["alice", "bob"]
+    assert repo["activity"]["totals"] == [14, 4]
+    assert repo["activity"]["layers"]["commits"] == [5, 2]
 
-    # reviews: users sorted by total reviews desc.
-    assert repo["reviews"]["users"] == ["bob", "alice"] or repo["reviews"]["users"] == ["alice", "bob"]
-    # Verify the numbers are aligned with whichever order was chosen.
-    order = repo["reviews"]["users"]
-    approved_by_user = dict(zip(order, repo["reviews"]["APPROVED"]))
-    commented_by_user = dict(zip(order, repo["reviews"]["COMMENTED"]))
-    assert approved_by_user == {"alice": 0, "bob": 1}
-    assert commented_by_user == {"alice": 3, "bob": 0}
+    # Removed payload keys must not appear.
+    assert "authoring" not in repo
+    assert "reviews" not in repo
+    assert "comments" not in repo
 
 
 _TEAM_SHARE_BUCKETS_EXPECTED = ("commits", "pull_requests_opened", "reviews_given", "comments")
@@ -248,18 +246,20 @@ def test_render_errored_repo_shows_error_banner_in_its_tab() -> None:
     assert "<canvas" not in broken_section
     healthy_section = _extract_section(html, "healthy")
     assert "error-banner" not in healthy_section
-    assert healthy_section.count("<canvas") == 4
+    assert healthy_section.count("<canvas") == 2  # team_share + activity
 
 
 def test_render_layer_disabled_placeholder() -> None:
+    # Only 'authoring' enabled -> team_share cell is a placeholder,
+    # activity cell always renders (missing collaboration counts as 0).
     metrics = _metrics(
         {"acme/api": _repo(commits_by_user={"alice": {"commits": 1}}, ts=_ts())},
         layers=("authoring",),
     )
     html = render(metrics)
     section = _extract_section(html, "acme/api")
-    assert 'data-chart="authoring"' in section
-    assert section.count("layer-disabled") == 3
+    assert 'data-chart="activity"' in section
+    assert section.count("layer-disabled") == 1  # team_share only
 
 
 def _extract_section(html: str, repo: str) -> str:

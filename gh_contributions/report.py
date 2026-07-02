@@ -138,41 +138,6 @@ def _chart_data(repo: dict, layers: set) -> dict:
             "share":   [ts[b]["share"] for b in buckets],
         }
 
-    if "authoring" in layers and per_user:
-        def _commits(u: str) -> int:
-            return per_user[u].get("authoring", {}).get("commits", 0)
-        users = sorted(per_user, key=lambda u: (-_commits(u), u))
-        result["authoring"] = {
-            "users":                users,
-            "commits":              [per_user[u].get("authoring", {}).get("commits", 0) for u in users],
-            "pull_requests_opened": [per_user[u].get("authoring", {}).get("pull_requests_opened", 0) for u in users],
-            "pull_requests_merged": [per_user[u].get("authoring", {}).get("pull_requests_merged", 0) for u in users],
-            "issues_opened":        [per_user[u].get("authoring", {}).get("issues_opened", 0) for u in users],
-        }
-
-    if "collaboration" in layers and per_user:
-        def _rev_total(u: str) -> int:
-            rg = per_user[u].get("collaboration", {}).get("reviews_given", {})
-            return sum(rg.values())
-        rusers = sorted(per_user, key=lambda u: (-_rev_total(u), u))
-        result["reviews"] = {
-            "users":              rusers,
-            "APPROVED":           [per_user[u].get("collaboration", {}).get("reviews_given", {}).get("APPROVED", 0)          for u in rusers],
-            "CHANGES_REQUESTED":  [per_user[u].get("collaboration", {}).get("reviews_given", {}).get("CHANGES_REQUESTED", 0) for u in rusers],
-            "COMMENTED":          [per_user[u].get("collaboration", {}).get("reviews_given", {}).get("COMMENTED", 0)         for u in rusers],
-        }
-
-        def _com_total(u: str) -> int:
-            c = per_user[u].get("collaboration", {})
-            return c.get("review_comments", 0) + c.get("pr_conversation_comments", 0) + c.get("issue_comments", 0)
-        cusers = sorted(per_user, key=lambda u: (-_com_total(u), u))
-        result["comments"] = {
-            "users":                    cusers,
-            "review_comments":          [per_user[u].get("collaboration", {}).get("review_comments", 0)          for u in cusers],
-            "pr_conversation_comments": [per_user[u].get("collaboration", {}).get("pr_conversation_comments", 0) for u in cusers],
-            "issue_comments":           [per_user[u].get("collaboration", {}).get("issue_comments", 0)           for u in cusers],
-        }
-
     return result
 
 
@@ -192,29 +157,28 @@ def _tab_body(name: str, repo: dict, layers: set, active: bool) -> str:
             f'</section>'
         )
     cells = [
-        _cell("team_share", "Team share",    "team_share",    name, layers),
-        _cell("authoring",  "Authoring",     "authoring",     name, layers),
-        _cell("reviews",    "Reviews given", "collaboration", name, layers),
-        _cell("comments",   "Comments",      "collaboration", name, layers),
+        _cell("team_share", "Team share", "team_share", name, layers),
+        _cell("activity",   "Activity",   None,         name, layers),
     ]
     return (
         f'<section data-repo="{name}"{hidden}>'
-        f'  <div class="grid">{"".join(cells)}</div>'
+        f'  <div class="stack">{"".join(cells)}</div>'
         f'  <table class="details" data-repo="{name}"></table>'
         f'</section>'
     )
 
 
-def _cell(chart_key: str, title: str, required_layer: str, repo_name: str, layers: set) -> str:
-    if required_layer not in layers:
+def _cell(chart_key: str, title: str, required_layer: str | None, repo_name: str, layers: set) -> str:
+    if required_layer is not None and required_layer not in layers:
         return (
             '<div class="cell layer-disabled">'
             f'<strong>{_esc(title)}</strong>'
             f'<p>Layer <code>{_esc(required_layer)}</code> disabled in config.</p>'
             "</div>"
         )
+    extra_class = " cell-team-share" if chart_key == "team_share" else " cell-activity" if chart_key == "activity" else ""
     return (
-        '<div class="cell">'
+        f'<div class="cell{extra_class}">'
         f'<canvas data-chart="{chart_key}" data-repo="{repo_name}"></canvas>'
         "</div>"
     )
@@ -245,9 +209,11 @@ nav#tabs { display: flex; gap: 4px; border-bottom: 1px solid #ddd; margin-top: 1
 .tab { border: 1px solid #ddd; background: #f6f6f6; padding: 6px 12px; cursor: pointer; }
 .tab.active { background: white; border-bottom-color: white; }
 main { padding-top: 12px; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.cell { border: 1px solid #eee; padding: 12px; min-height: 280px; }
-.cell canvas { max-height: 320px; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.cell { border: 1px solid #eee; padding: 12px; }
+.cell-team-share { max-width: 480px; }
+.cell-team-share canvas { max-height: 320px; }
+.layer-note { color: #666; font-size: 12px; margin: 0 0 8px; }
 table.details { border-collapse: collapse; margin-top: 16px; width: 100%; }
 table.details th, table.details td { border: 1px solid #eee; padding: 4px 8px; text-align: right; }
 table.details th { background: #fafafa; cursor: pointer; }
@@ -311,52 +277,85 @@ _APP_JS = r"""
       });
     }
 
-    if (kind === 'authoring' && repo.authoring) {
-      const a = repo.authoring;
-      new Chart(canvas, {
-        type: 'bar',
-        data: {
-          labels: a.users,
-          datasets: [
-            { label: 'commits',              data: a.commits,              backgroundColor: color(0) },
-            { label: 'PRs opened',           data: a.pull_requests_opened, backgroundColor: color(1) },
-            { label: 'PRs merged',           data: a.pull_requests_merged, backgroundColor: color(2) },
-            { label: 'issues opened',        data: a.issues_opened,        backgroundColor: color(3) },
-          ],
-        },
-        options: { scales: { y: { beginAtZero: true } } }
-      });
-    }
+    if (kind === 'activity' && repo.activity) {
+      const act = repo.activity;
 
-    if (kind === 'reviews' && repo.reviews) {
-      const r = repo.reviews;
-      new Chart(canvas, {
-        type: 'bar',
-        data: {
-          labels: r.users,
-          datasets: [
-            { label: 'APPROVED',          data: r.APPROVED,          backgroundColor: color(1) },
-            { label: 'CHANGES_REQUESTED', data: r.CHANGES_REQUESTED, backgroundColor: color(3) },
-            { label: 'COMMENTED',         data: r.COMMENTED,         backgroundColor: color(0) },
-          ],
-        },
-        options: { scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+      // Inject the disabled-layer note above the canvas if any config
+      // metrics layer is off. Runs once per canvas.
+      const activeLayers = (data.run && data.run.metrics_layers) || [];
+      const disabled = ['authoring', 'collaboration'].filter(function(l){
+        return activeLayers.indexOf(l) === -1;
       });
-    }
+      if (disabled.length && canvas.parentNode) {
+        const note = document.createElement('p');
+        note.className = 'layer-note';
+        note.textContent =
+          'Note: ' + disabled.map(function(l){ return '`' + l + '`'; }).join(' and ') +
+          ' metrics layer' + (disabled.length > 1 ? 's' : '') +
+          ' disabled in config \u2014 affected sub-metrics count as 0.';
+        canvas.parentNode.insertBefore(note, canvas);
+      }
 
-    if (kind === 'comments' && repo.comments) {
-      const c = repo.comments;
+      // Grow canvas height with user count so horizontal bars stay legible.
+      const height = Math.max(200, act.users.length * 28 + 60);
+      canvas.style.height = height + 'px';
+
+      const displayNames = {
+        commits: 'commits',
+        pull_requests_opened: 'opened',
+        pull_requests_merged: 'merged',
+        APPROVED: 'approved',
+        CHANGES_REQUESTED: 'changes',
+        COMMENTED: 'commented',
+        review_comments: 'review',
+        pr_conversation_comments: 'PR conv',
+        issue_comments: 'issue',
+      };
+      const layerLabels = { commits: 'Commits', pr: 'PR activity', comments: 'Comments' };
+
+      function tooltipLabel(ctx) {
+        const layerKey = ctx.dataset.layerKey;
+        const login = ctx.label;
+        const layerTotal = ctx.parsed.x;
+        const bd = (act.breakdown[login] || {})[layerKey] || {};
+        const subKeys = Object.keys(bd);
+        // Omit parenthetical when total is 0 or the layer has a single sub-metric.
+        if (layerTotal === 0 || subKeys.length <= 1) {
+          return layerLabels[layerKey] + ': ' + layerTotal;
+        }
+        const parts = subKeys
+          .filter(function(k){ return bd[k] > 0; })
+          .map(function(k){ return (displayNames[k] || k) + ' ' + bd[k]; });
+        return layerLabels[layerKey] + ': ' + layerTotal +
+               (parts.length ? ' (' + parts.join(', ') + ')' : '');
+      }
+
       new Chart(canvas, {
         type: 'bar',
         data: {
-          labels: c.users,
+          labels: act.users,
           datasets: [
-            { label: 'review comments',       data: c.review_comments,          backgroundColor: color(0) },
-            { label: 'PR conversation',       data: c.pr_conversation_comments, backgroundColor: color(4) },
-            { label: 'issue comments',        data: c.issue_comments,           backgroundColor: color(5) },
+            { label: layerLabels.commits,  layerKey: 'commits',  data: act.layers.commits,  backgroundColor: color(0) },
+            { label: layerLabels.pr,       layerKey: 'pr',       data: act.layers.pr,       backgroundColor: color(1) },
+            { label: layerLabels.comments, layerKey: 'comments', data: act.layers.comments, backgroundColor: color(2) },
           ],
         },
-        options: { scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+        options: {
+          indexAxis: 'y',
+          maintainAspectRatio: false,
+          scales: {
+            x: { stacked: true, beginAtZero: true },
+            y: { stacked: true },
+          },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                title: function(ctxs){ return ctxs.length ? ctxs[0].label : ''; },
+                label: tooltipLabel,
+              },
+            },
+          },
+        },
       });
     }
   });
