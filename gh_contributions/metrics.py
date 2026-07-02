@@ -8,67 +8,155 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
+from .fetch import _months_between
 
 
-def compute(raw_dir: Path, config: Config) -> dict:
+def compute(raw_root: Path, config: Config, *, today: date | None = None) -> dict:
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+    months = _months_between(config.since, today)
     result: dict[str, Any] = {
         "run": {
             "since": config.since.isoformat(),
-            "until": config.until.isoformat(),
+            "until": today.isoformat(),
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "metrics_layers": list(config.metrics),
         },
         "repos": {},
     }
     for repo in config.repos:
-        result["repos"][repo] = _compute_repo(raw_dir, repo, config)
+        result["repos"][repo] = _compute_repo(raw_root, months, repo, config, today)
     return result
 
 
-def _compute_repo(raw_dir: Path, repo: str, config: Config) -> dict:
+def _compute_repo(
+    raw_root: Path,
+    months: list[str],
+    repo: str,
+    config: Config,
+    today: date,
+) -> dict:
     owner, name = repo.split("/", 1)
-    repo_dir = raw_dir / f"{owner}__{name}"
 
-    meta = _read_json(repo_dir / "_meta.json", default={})
-    if isinstance(meta, dict) and meta.get("error"):
+    statuses: dict[str, tuple[str, dict | str | None]] = {
+        m: _month_status(raw_root, m, owner, name) for m in months
+    }
+    good_months    = [m for m, s in statuses.items() if s[0] == "good"]
+    errored_months = [m for m, s in statuses.items() if s[0] == "error"]
+    # 'absent' months are silently treated as gaps.
+
+    if months and not good_months and errored_months:
+        reasons = sorted({str(statuses[m][1]) for m in errored_months})
+        reason = reasons[0] if len(reasons) == 1 else "; ".join(reasons)
         return {
             "per_user": None,
             "team_share": None,
             "truncated": None,
-            "error": meta["error"],
+            "error": reason,
         }
 
     per_user: dict[str, dict] = {u: {} for u in config.usernames}
     truncated: dict[str, bool] = {}
+    error: str | None = None
+    if errored_months:
+        parts = [f"{m} ({statuses[m][1]})" for m in errored_months]
+        error = "partial: failed months: " + ", ".join(parts)
+
+    for m in good_months:
+        meta = statuses[m][1]
+        if isinstance(meta, dict):
+            for endpoint, entry in meta.items():
+                if isinstance(entry, dict) and entry.get("truncated"):
+                    truncated[endpoint] = True
+
     out: dict[str, Any] = {
         "per_user": per_user,
         "team_share": None,
         "truncated": truncated,
-        "error": None,
+        "error": error,
     }
 
-    if isinstance(meta, dict):
-        for endpoint, entry in meta.items():
-            if isinstance(entry, dict) and entry.get("truncated"):
-                truncated[endpoint] = True
-
     if "authoring" in config.metrics:
-        _apply_authoring(repo_dir, config, per_user, truncated)
+        _apply_authoring(raw_root, good_months, owner, name, config, per_user)
 
     if "collaboration" in config.metrics:
-        _apply_collaboration(repo_dir, config, per_user, truncated)
+        _apply_collaboration(raw_root, good_months, owner, name, config, today, per_user)
 
     if "team_share" in config.metrics:
-        _apply_team_share(repo_dir, config, out)
+        _apply_team_share(raw_root, good_months, owner, name, config, today, out)
 
     return out
 
 
+def _month_status(
+    raw_root: Path,
+    month: str,
+    owner: str,
+    name: str,
+) -> tuple[str, dict | str | None]:
+    """('good', meta_dict) | ('error', reason_str) | ('absent', None)."""
+    repo_dir = raw_root / month / f"{owner}__{name}"
+    meta_path = repo_dir / "_meta.json"
+    if not repo_dir.exists() or not meta_path.exists():
+        return ("absent", None)
+    try:
+        meta = json.loads(meta_path.read_text())
+    except json.JSONDecodeError:
+        return ("error", "malformed")
+    if not isinstance(meta, dict):
+        return ("error", "malformed")
+    if "error" in meta:
+        return ("error", str(meta["error"]))
+    return ("good", meta)
+
+
+def _load_endpoint(
+    raw_root: Path,
+    months: list[str],
+    owner: str,
+    name: str,
+    filename: str,
+) -> list[dict]:
+    out: list[dict] = []
+    for m in months:
+        path = raw_root / m / f"{owner}__{name}" / filename
+        if not path.exists():
+            continue
+        data = _read_json(path, default=[])
+        if isinstance(data, list):
+            out.extend(data)
+    return out
+
+
+def _load_reviews(
+    raw_root: Path,
+    months: list[str],
+    owner: str,
+    name: str,
+) -> dict[int, list[dict]]:
+    merged: dict[int, list[dict]] = {}
+    for m in months:
+        reviews_dir = raw_root / m / f"{owner}__{name}" / "reviews"
+        if not reviews_dir.is_dir():
+            continue
+        for review_file in sorted(reviews_dir.glob("*.json")):
+            try:
+                pr_number = int(review_file.stem)
+            except ValueError:
+                continue
+            data = _read_json(review_file, default=[])
+            if isinstance(data, list):
+                merged[pr_number] = data
+    return merged
+
+
 def _apply_authoring(
-    repo_dir: Path,
+    raw_root: Path,
+    months: list[str],
+    owner: str,
+    name: str,
     config: Config,
     per_user: dict[str, dict],
-    truncated: dict[str, bool],
 ) -> None:
     team = set(config.usernames)
     counts = {u: {
@@ -84,7 +172,7 @@ def _apply_authoring(
         ("prs_by_merged.json",     "pull_requests_merged"),
         ("issues_by_created.json", "issues_opened"),
     ]:
-        for item in _read_json(repo_dir / src, default=[]):
+        for item in _load_endpoint(raw_root, months, owner, name, src):
             login = _author_login(item, src)
             if login in team:
                 counts[login][key] += 1
@@ -112,17 +200,9 @@ def _read_json(path: Path, *, default):
 _REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
 
 
-_TEAM_SHARE_SUB_METRICS = {
-    "commits":  ("commits",),
-    "pr":       ("pull_requests_opened", "pull_requests_merged",
-                 "APPROVED", "CHANGES_REQUESTED", "COMMENTED"),
-    "comments": ("review_comments", "pr_conversation_comments", "issue_comments"),
-}
-
-
-def _window_bounds(config: Config) -> tuple[datetime, datetime]:
+def _window_bounds(config: Config, today: date) -> tuple[datetime, datetime]:
     lo = datetime.combine(config.since, time.min, tzinfo=timezone.utc)
-    hi = datetime.combine(config.until, time(23, 59, 59), tzinfo=timezone.utc)
+    hi = datetime.combine(today, time(23, 59, 59), tzinfo=timezone.utc)
     return lo, hi
 
 
@@ -138,13 +218,16 @@ def _in_window(ts: str | None, lo: datetime, hi: datetime) -> bool:
 
 
 def _apply_collaboration(
-    repo_dir: Path,
+    raw_root: Path,
+    months: list[str],
+    owner: str,
+    name: str,
     config: Config,
+    today: date,
     per_user: dict[str, dict],
-    truncated: dict[str, bool],
 ) -> None:
     team = set(config.usernames)
-    lo, hi = _window_bounds(config)
+    lo, hi = _window_bounds(config, today)
 
     collab = {u: {
         "reviews_given": {s: 0 for s in _REVIEW_STATES},
@@ -154,9 +237,8 @@ def _apply_collaboration(
         "cross_team_reviews": 0,
     } for u in team}
 
-    # PR author map from prs_updated.json (login by PR number).
     pr_author_by_number: dict[int, str] = {}
-    for pr in _read_json(repo_dir / "prs_updated.json", default=[]):
+    for pr in _load_endpoint(raw_root, months, owner, name, "prs_updated.json"):
         num = pr.get("number")
         user = pr.get("user") or {}
         if isinstance(num, int) and isinstance(user, dict):
@@ -164,35 +246,30 @@ def _apply_collaboration(
 
     known_pr_numbers = set(pr_author_by_number)
 
-    # Reviews: iterate reviews/<number>.json files.
-    reviews_dir = repo_dir / "reviews"
-    if reviews_dir.is_dir():
-        for review_file in sorted(reviews_dir.glob("*.json")):
-            pr_number = int(review_file.stem)
-            pr_author = pr_author_by_number.get(pr_number, "")
-            for r in _read_json(review_file, default=[]):
-                state = r.get("state")
-                if state not in _REVIEW_STATES:
-                    continue
-                if not _in_window(r.get("submitted_at"), lo, hi):
-                    continue
-                reviewer = ((r.get("user") or {}).get("login")) or ""
-                if reviewer not in team:
-                    continue
-                collab[reviewer]["reviews_given"][state] += 1
-                if pr_author and pr_author not in team:
-                    collab[reviewer]["cross_team_reviews"] += 1
+    reviews_by_pr = _load_reviews(raw_root, months, owner, name)
+    for pr_number, reviews in reviews_by_pr.items():
+        pr_author = pr_author_by_number.get(pr_number, "")
+        for r in reviews:
+            state = r.get("state")
+            if state not in _REVIEW_STATES:
+                continue
+            if not _in_window(r.get("submitted_at"), lo, hi):
+                continue
+            reviewer = ((r.get("user") or {}).get("login")) or ""
+            if reviewer not in team:
+                continue
+            collab[reviewer]["reviews_given"][state] += 1
+            if pr_author and pr_author not in team:
+                collab[reviewer]["cross_team_reviews"] += 1
 
-    # Review comments (inline PR review comments), repo-wide.
-    for c in _read_json(repo_dir / "review_comments.json", default=[]):
+    for c in _load_endpoint(raw_root, months, owner, name, "review_comments.json"):
         if not _in_window(c.get("created_at"), lo, hi):
             continue
         login = ((c.get("user") or {}).get("login")) or ""
         if login in team:
             collab[login]["review_comments"] += 1
 
-    # Issue comments: split into PR-conversation vs issue comments by parent number.
-    for c in _read_json(repo_dir / "issue_comments.json", default=[]):
+    for c in _load_endpoint(raw_root, months, owner, name, "issue_comments.json"):
         if not _in_window(c.get("created_at"), lo, hi):
             continue
         login = ((c.get("user") or {}).get("login")) or ""
@@ -218,65 +295,65 @@ def _parent_number(issue_url: str | None) -> int | None:
         return None
 
 
-def _apply_team_share(repo_dir: Path, config: Config, out: dict) -> None:
+def _apply_team_share(
+    raw_root: Path,
+    months: list[str],
+    owner: str,
+    name: str,
+    config: Config,
+    today: date,
+    out: dict,
+) -> None:
     team = set(config.usernames)
-    lo, hi = _window_bounds(config)
+    lo, hi = _window_bounds(config, today)
 
-    # commits — Search results are already window-filtered by the query.
     commits_team = 0
     commits_total = 0
-    for c in _read_json(repo_dir / "commits.json", default=[]):
+    for c in _load_endpoint(raw_root, months, owner, name, "commits.json"):
         commits_total += 1
         if _author_login(c, "commits.json") in team:
             commits_team += 1
 
-    # PR opened — window-filtered by search query.
     opened_team, opened_total = 0, 0
-    for p in _read_json(repo_dir / "prs_by_created.json", default=[]):
+    for p in _load_endpoint(raw_root, months, owner, name, "prs_by_created.json"):
         opened_total += 1
         if _author_login(p, "prs_by_created.json") in team:
             opened_team += 1
 
-    # PR merged — window-filtered by search query.
     merged_team, merged_total = 0, 0
-    for p in _read_json(repo_dir / "prs_by_merged.json", default=[]):
+    for p in _load_endpoint(raw_root, months, owner, name, "prs_by_merged.json"):
         merged_total += 1
         if _author_login(p, "prs_by_merged.json") in team:
             merged_team += 1
 
-    # Reviews by state, windowed.
     rev_team = {s: 0 for s in _REVIEW_STATES}
     rev_total = {s: 0 for s in _REVIEW_STATES}
-    reviews_dir = repo_dir / "reviews"
-    if reviews_dir.is_dir():
-        for review_file in sorted(reviews_dir.glob("*.json")):
-            for r in _read_json(review_file, default=[]):
-                state = r.get("state")
-                if state not in _REVIEW_STATES:
-                    continue
-                if not _in_window(r.get("submitted_at"), lo, hi):
-                    continue
-                rev_total[state] += 1
-                if ((r.get("user") or {}).get("login")) in team:
-                    rev_team[state] += 1
+    for reviews in _load_reviews(raw_root, months, owner, name).values():
+        for r in reviews:
+            state = r.get("state")
+            if state not in _REVIEW_STATES:
+                continue
+            if not _in_window(r.get("submitted_at"), lo, hi):
+                continue
+            rev_total[state] += 1
+            if ((r.get("user") or {}).get("login")) in team:
+                rev_team[state] += 1
 
-    # Review comments (inline PR review comments), windowed.
     rc_team, rc_total = 0, 0
-    for c in _read_json(repo_dir / "review_comments.json", default=[]):
+    for c in _load_endpoint(raw_root, months, owner, name, "review_comments.json"):
         if not _in_window(c.get("created_at"), lo, hi):
             continue
         rc_total += 1
         if ((c.get("user") or {}).get("login")) in team:
             rc_team += 1
 
-    # Issue comments: split by parent number against prs_updated.
-    prs_updated = _read_json(repo_dir / "prs_updated.json", default=[])
+    prs_updated = _load_endpoint(raw_root, months, owner, name, "prs_updated.json")
     known_pr_numbers = {
         p.get("number") for p in prs_updated if isinstance(p.get("number"), int)
     }
     prc_team, prc_total = 0, 0
     ic_team, ic_total = 0, 0
-    for c in _read_json(repo_dir / "issue_comments.json", default=[]):
+    for c in _load_endpoint(raw_root, months, owner, name, "issue_comments.json"):
         if not _in_window(c.get("created_at"), lo, hi):
             continue
         parent = _parent_number(c.get("issue_url"))

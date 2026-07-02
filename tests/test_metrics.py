@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -9,9 +10,9 @@ from gh_contributions.metrics import compute
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _load(fixture: str):
+def _load(fixture: str, today: date = date(2026, 4, 30)):
     cfg = load_config(str(FIXTURES / fixture / "config.yml"))
-    return compute(FIXTURES / fixture / "raw", cfg)
+    return compute(FIXTURES / fixture / "raw", cfg, today=today)
 
 
 def test_authoring_counts_per_user() -> None:
@@ -47,7 +48,7 @@ def test_authoring_only_layer_no_team_share_no_collab() -> None:
 def test_run_metadata_present() -> None:
     out = _load("authoring")
     assert out["run"]["since"] == "2026-01-01"
-    assert out["run"]["until"] == "2026-06-30"
+    assert out["run"]["until"] == "2026-04-30"
     assert out["run"]["metrics_layers"] == ["authoring"]
     assert "generated_at" in out["run"]
 
@@ -141,19 +142,18 @@ def test_team_share_zero_denominator_is_null(tmp_path) -> None:
     cfg = Config(
         usernames=["alice"],
         repos=["acme/api"],
-        since=date(2026, 1, 1),
-        until=date(2026, 6, 30),
+        since=date(2026, 2, 1),
         metrics=["team_share"],
     )
-    repo_dir = tmp_path / "acme__api"
-    repo_dir.mkdir()
-    (repo_dir / "_meta.json").write_text("{}")
+    bucket = tmp_path / "2026-02" / "acme__api"
+    bucket.mkdir(parents=True)
+    (bucket / "_meta.json").write_text("{}")
     for f in ("commits.json", "prs_by_created.json", "prs_by_merged.json",
               "prs_updated.json", "review_comments.json", "issue_comments.json"):
-        (repo_dir / f).write_text("[]")
-    (repo_dir / "reviews").mkdir()
+        (bucket / f).write_text("[]")
+    (bucket / "reviews").mkdir()
 
-    out = compute(tmp_path, cfg)
+    out = compute(tmp_path, cfg, today=date(2026, 2, 28))
     share = out["repos"]["acme/api"]["team_share"]
 
     assert share["commits"] == {
@@ -179,24 +179,23 @@ def test_team_share_pr_reviews_windowed(tmp_path) -> None:
     cfg = Config(
         usernames=["alice"],
         repos=["acme/api"],
-        since=date(2026, 1, 1),
-        until=date(2026, 6, 30),
+        since=date(2026, 2, 1),
         metrics=["team_share"],
     )
-    repo_dir = tmp_path / "acme__api"
-    repo_dir.mkdir()
-    (repo_dir / "_meta.json").write_text("{}")
+    bucket = tmp_path / "2026-02" / "acme__api"
+    bucket.mkdir(parents=True)
+    (bucket / "_meta.json").write_text("{}")
     for f in ("commits.json", "prs_by_created.json", "prs_by_merged.json",
               "prs_updated.json", "review_comments.json", "issue_comments.json"):
-        (repo_dir / f).write_text("[]")
-    (repo_dir / "reviews").mkdir()
+        (bucket / f).write_text("[]")
+    (bucket / "reviews").mkdir()
     # Two reviews: one in-window (counted), one before window (excluded from BOTH team and total).
-    (repo_dir / "reviews" / "1.json").write_text(_json.dumps([
+    (bucket / "reviews" / "1.json").write_text(_json.dumps([
         {"user": {"login": "alice"}, "state": "APPROVED", "submitted_at": "2026-02-10T10:00:00Z"},
         {"user": {"login": "eve"},   "state": "APPROVED", "submitted_at": "2025-12-31T10:00:00Z"},
     ]))
 
-    share = compute(tmp_path, cfg)["repos"]["acme/api"]["team_share"]
+    share = compute(tmp_path, cfg, today=date(2026, 2, 28))["repos"]["acme/api"]["team_share"]
     assert share["pr"]["team"]["APPROVED"]  == 1
     assert share["pr"]["total"]["APPROVED"] == 1
 

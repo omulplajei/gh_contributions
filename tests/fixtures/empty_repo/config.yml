@@ -3,6 +3,5 @@ usernames:
 repos:
   - acme/api
 since: 2026-01-01
-until: 2026-06-30
 metrics:
   - authoring
