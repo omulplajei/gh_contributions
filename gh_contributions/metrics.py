@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .fetch import _months_between
+from .fetch import _effective_end, _months_between
 
 
 def compute(raw_root: Path, config: Config, *, today: date | None = None) -> dict:
@@ -18,7 +18,7 @@ def compute(raw_root: Path, config: Config, *, today: date | None = None) -> dic
     result: dict[str, Any] = {
         "run": {
             "since": config.since.isoformat(),
-            "until": today.isoformat(),
+            "until": _effective_end(today).isoformat(),
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "metrics_layers": list(config.metrics),
         },
@@ -202,7 +202,7 @@ _REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
 
 def _window_bounds(config: Config, today: date) -> tuple[datetime, datetime]:
     lo = datetime.combine(config.since, time.min, tzinfo=timezone.utc)
-    hi = datetime.combine(today, time(23, 59, 59), tzinfo=timezone.utc)
+    hi = datetime.combine(_effective_end(today), time(23, 59, 59), tzinfo=timezone.utc)
     return lo, hi
 
 

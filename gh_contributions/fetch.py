@@ -201,11 +201,12 @@ def _effective_end(today: date) -> date:
 
 
 def _months_between(since: date, today: date) -> list[str]:
-    if since > today:
+    end = _effective_end(today)
+    if since > end:
         return []
     out: list[str] = []
     y, m = since.year, since.month
-    end_y, end_m = today.year, today.month
+    end_y, end_m = end.year, end.month
     while (y, m) <= (end_y, end_m):
         out.append(f"{y:04d}-{m:02d}")
         m += 1

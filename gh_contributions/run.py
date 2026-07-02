@@ -47,8 +47,10 @@ def main(argv: list[str] | None = None) -> int:
     if not months or not cfg.repos:
         if not cfg.repos:
             print("no repos configured; writing empty metrics.json", file=sys.stderr)
-        else:
+        elif cfg.since > today:
             print(f"since ({cfg.since}) is after today; writing empty metrics.json", file=sys.stderr)
+        else:
+            print(f"since ({cfg.since}) is inside the current month; no complete months to fetch yet", file=sys.stderr)
         _write_metrics(run_out, compute(raw_root, cfg, today=today))
         return 0
 

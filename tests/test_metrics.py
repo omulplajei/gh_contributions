@@ -10,7 +10,7 @@ from gh_contributions.metrics import compute
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _load(fixture: str, today: date = date(2026, 4, 30)):
+def _load(fixture: str, today: date = date(2026, 5, 15)):
     cfg = load_config(str(FIXTURES / fixture / "config.yml"))
     return compute(FIXTURES / fixture / "raw", cfg, today=today)
 
@@ -153,7 +153,7 @@ def test_team_share_zero_denominator_is_null(tmp_path) -> None:
         (bucket / f).write_text("[]")
     (bucket / "reviews").mkdir()
 
-    out = compute(tmp_path, cfg, today=date(2026, 2, 28))
+    out = compute(tmp_path, cfg, today=date(2026, 3, 15))
     share = out["repos"]["acme/api"]["team_share"]
 
     assert share["commits"] == {
@@ -195,7 +195,7 @@ def test_team_share_pr_reviews_windowed(tmp_path) -> None:
         {"user": {"login": "eve"},   "state": "APPROVED", "submitted_at": "2025-12-31T10:00:00Z"},
     ]))
 
-    share = compute(tmp_path, cfg, today=date(2026, 2, 28))["repos"]["acme/api"]["team_share"]
+    share = compute(tmp_path, cfg, today=date(2026, 3, 15))["repos"]["acme/api"]["team_share"]
     assert share["pr"]["team"]["APPROVED"]  == 1
     assert share["pr"]["total"]["APPROVED"] == 1
 
@@ -237,7 +237,7 @@ def test_team_share_only_layer_propagates_truncation() -> None:
 
 
 def test_multi_month_authoring_sums_across_months() -> None:
-    out = _load("multi_month", today=date(2026, 6, 30))
+    out = _load("multi_month", today=date(2026, 7, 15))
     users = out["repos"]["acme/api"]["per_user"]
     # May: alice 1 commit, bob 1 commit. June: alice 2 commits, bob 0. Total: alice 3, bob 1.
     assert users["alice"]["authoring"]["commits"] == 3
@@ -245,13 +245,13 @@ def test_multi_month_authoring_sums_across_months() -> None:
 
 
 def test_multi_month_truncation_ored_across_months() -> None:
-    out = _load("multi_month", today=date(2026, 6, 30))
+    out = _load("multi_month", today=date(2026, 7, 15))
     # May's _meta marks commits truncated; June's does not.
     assert out["repos"]["acme/api"]["truncated"].get("commits") is True
 
 
 def test_multi_month_pr_reviews_deduplicated_by_pr_number() -> None:
-    out = _load("multi_month", today=date(2026, 6, 30))
+    out = _load("multi_month", today=date(2026, 7, 15))
     # PR 1 has reviews/1.json in BOTH May and June with the same single APPROVED review.
     # Merge is last-writer-wins keyed by PR number; must not double-count.
     share = out["repos"]["acme/api"]["team_share"]
@@ -259,7 +259,7 @@ def test_multi_month_pr_reviews_deduplicated_by_pr_number() -> None:
 
 
 def test_missing_month_in_the_middle_contributes_zero_no_error() -> None:
-    out = _load("missing_month", today=date(2026, 7, 31))
+    out = _load("missing_month", today=date(2026, 8, 15))
     repo = out["repos"]["acme/api"]
     # May: 1 commit by alice. July: 1 commit by alice. June bucket absent.
     # Missing months in-window (with no bucket at all) are treated as gaps, not errors.
@@ -268,7 +268,7 @@ def test_missing_month_in_the_middle_contributes_zero_no_error() -> None:
 
 
 def test_partial_error_reports_partial_and_keeps_good_data() -> None:
-    out = _load("partial_error", today=date(2026, 7, 31))
+    out = _load("partial_error", today=date(2026, 8, 15))
     repo = out["repos"]["acme/api"]
     # May + June good (1 commit each by alice); July errored (rate_limited).
     assert repo["per_user"]["alice"]["authoring"]["commits"] == 2
@@ -276,7 +276,7 @@ def test_partial_error_reports_partial_and_keeps_good_data() -> None:
 
 
 def test_partial_error_all_months_failed_surfaces_single_error() -> None:
-    out = _load("partial_error_all_bad", today=date(2026, 7, 31))
+    out = _load("partial_error_all_bad", today=date(2026, 8, 15))
     repo = out["repos"]["acme/api"]
     assert repo["per_user"] is None
     assert repo["error"] == "not_found"

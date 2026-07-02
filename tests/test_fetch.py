@@ -7,11 +7,11 @@ from gh_contributions.fetch import _is_bucket_complete, _month_bounds, _months_b
 
 
 def test_months_between_single_month() -> None:
-    assert _months_between(date(2026, 5, 15), date(2026, 5, 20)) == ["2026-05"]
+    assert _months_between(date(2026, 5, 15), date(2026, 6, 1)) == ["2026-05"]
 
 
 def test_months_between_spans_year_boundary() -> None:
-    assert _months_between(date(2025, 11, 30), date(2026, 2, 1)) == [
+    assert _months_between(date(2025, 11, 30), date(2026, 3, 1)) == [
         "2025-11", "2025-12", "2026-01", "2026-02",
     ]
 
@@ -21,7 +21,22 @@ def test_months_between_since_after_today_returns_empty() -> None:
 
 
 def test_months_between_since_first_day_of_month() -> None:
-    assert _months_between(date(2026, 5, 1), date(2026, 6, 1)) == ["2026-05", "2026-06"]
+    assert _months_between(date(2026, 5, 1), date(2026, 7, 1)) == ["2026-05", "2026-06"]
+
+
+def test_months_between_excludes_current_month() -> None:
+    # Today is mid-July; enumeration must stop at June.
+    assert _months_between(date(2026, 5, 1), date(2026, 7, 15)) == ["2026-05", "2026-06"]
+
+
+def test_months_between_since_in_current_month_is_empty() -> None:
+    # Since is inside the current calendar month → no complete months yet.
+    assert _months_between(date(2026, 7, 10), date(2026, 7, 15)) == []
+
+
+def test_months_between_since_and_today_in_same_past_month_is_empty() -> None:
+    # Both dates in the same calendar month → the month is "current" → excluded.
+    assert _months_between(date(2026, 5, 5), date(2026, 5, 20)) == []
 
 
 def test_month_bounds_past_month() -> None:
@@ -122,15 +137,45 @@ def _write_complete_bucket(bucket: Path) -> None:
     (bucket / "reviews").mkdir()
 
 
-def test_run_skips_complete_buckets_and_fetches_missing(tmp_path, monkeypatch) -> None:
+def test_run_skips_all_complete_buckets(tmp_path, monkeypatch) -> None:
     from gh_contributions import run as run_mod
-
-    fake_today = date(2026, 7, 2)
 
     class _FakeDT:
         @staticmethod
         def now(tz=None):
-            return datetime(2026, 7, 2, 12, 0, 0, tzinfo=tz or timezone.utc)
+            return datetime(2026, 8, 15, 12, 0, 0, tzinfo=tz or timezone.utc)
+
+    monkeypatch.setattr(run_mod, "datetime", _FakeDT)
+    monkeypatch.setenv("GITHUB_TOKEN", "x")
+    monkeypatch.chdir(tmp_path)
+
+    for month in ("2026-05", "2026-06", "2026-07"):
+        _write_complete_bucket(tmp_path / "out" / "raw" / month / "acme__api")
+
+    (tmp_path / "config.yml").write_text(
+        "usernames: [alice]\nrepos: [acme/api]\nsince: 2026-05-01\nmetrics: [authoring]\n"
+    )
+
+    fetch_calls: list[tuple] = []
+
+    def fake_fetch_repo(client, repo, since, until, out_dir):
+        fetch_calls.append((repo, since, until, Path(out_dir).name))
+
+    monkeypatch.setattr(run_mod, "fetch_repo", fake_fetch_repo)
+    monkeypatch.setattr(run_mod, "GitHubClient", lambda token: MagicMock())
+
+    rc = run_mod.main([])
+    assert rc == 0
+    assert fetch_calls == []
+
+
+def test_run_fetches_missing_month(tmp_path, monkeypatch) -> None:
+    from gh_contributions import run as run_mod
+
+    class _FakeDT:
+        @staticmethod
+        def now(tz=None):
+            return datetime(2026, 8, 15, 12, 0, 0, tzinfo=tz or timezone.utc)
 
     monkeypatch.setattr(run_mod, "datetime", _FakeDT)
     monkeypatch.setenv("GITHUB_TOKEN", "x")
@@ -155,7 +200,7 @@ def test_run_skips_complete_buckets_and_fetches_missing(tmp_path, monkeypatch) -
 
     rc = run_mod.main([])
     assert rc == 0
-    assert fetch_calls == [("acme/api", date(2026, 7, 1), fake_today, "2026-07")]
+    assert fetch_calls == [("acme/api", date(2026, 7, 1), date(2026, 7, 31), "2026-07")]
 
     run_dirs = [p for p in (tmp_path / "out").iterdir() if p.name != "raw"]
     assert len(run_dirs) == 1
