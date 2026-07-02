@@ -718,7 +718,9 @@ def main(argv: list[str] | None = None) -> int:
         if not out_root.is_dir():
             print("no run directories found under out/", file=sys.stderr)
             return 2
-        candidates = sorted(p for p in out_root.iterdir() if p.is_dir())
+        candidates = sorted(
+            p for p in out_root.iterdir() if p.is_dir() and (p / "metrics.json").is_file()
+        )
         if not candidates:
             print("no run directories found under out/", file=sys.stderr)
             return 2

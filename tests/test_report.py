@@ -536,6 +536,22 @@ def test_main_picks_newest_run_dir_when_no_arg(tmp_path, monkeypatch) -> None:
     assert not (older / "report.html").exists()
 
 
+def test_main_ignores_raw_cache_dir_when_picking_newest(tmp_path, monkeypatch) -> None:
+    # The raw cache lives at out/raw/ alongside timestamped run dirs and sorts
+    # alphabetically after them. It must not be picked as the newest "run".
+    out_root = tmp_path / "out"
+    run = out_root / "2026-02-01T000000Z"
+    raw = out_root / "raw" / "2026-01" / "acme__api"
+    run.mkdir(parents=True)
+    raw.mkdir(parents=True)
+    (run / "metrics.json").write_text(json.dumps(_valid_metrics_dict()))
+    monkeypatch.chdir(tmp_path)
+
+    rc = main([])
+    assert rc == 0
+    assert (run / "report.html").exists()
+
+
 # ---------- activity block ----------
 
 
