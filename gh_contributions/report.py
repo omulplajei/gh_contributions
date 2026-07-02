@@ -289,6 +289,20 @@ _APP_JS = r"""
   const palette = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'];
   function color(i){ return palette[i % palette.length]; }
 
+  const displayNames = {
+    commits: 'commits',
+    pull_requests_opened: 'opened',
+    pull_requests_merged: 'merged',
+    APPROVED: 'approved',
+    CHANGES_REQUESTED: 'changes',
+    COMMENTED: 'commented',
+    review_comments: 'review',
+    pr_conversation_comments: 'PR conv',
+    issue_comments: 'issue',
+  };
+  const layerLabels = { commits: 'Commits', pr: 'PR activity', comments: 'Comments' };
+  const layerIndex  = { commits: 0, pr: 1, comments: 2 };
+
   document.querySelectorAll('canvas[data-chart]').forEach(function(canvas){
     const repo = data.repos[canvas.dataset.repo];
     if (!repo || repo.error) return;
@@ -296,31 +310,52 @@ _APP_JS = r"""
 
     if (kind === 'team_share' && repo.team_share) {
       const ts = repo.team_share;
+      const layer = canvas.dataset.layer;
+      const i = ts.layers.indexOf(layer);
+      if (i < 0) return;
+
+      const teamCount = ts.team[i];
+      const total     = ts.total[i];
+      const share     = ts.shares[i];
+      if (share === null) return;  // server-side placeholder already rendered
+
+      const bd      = ts.breakdown[layer];
+      const teamBd  = bd.team;
+      const totalBd = bd.total;
+      const subKeys = Object.keys(totalBd);
+      const sharePct = (share * 100).toFixed(1) + '%';
+
+      function pieTooltipLabel(ctx) {
+        const isTeam = ctx.dataIndex === 0;
+        const sliceLabel = isTeam ? 'Team' : 'Non-team';
+        const sliceCount = ctx.parsed;
+        let base = sliceLabel + ': ' + sliceCount + ' / ' + total;
+        if (sliceCount === 0 || subKeys.length <= 1) return base;
+        const parts = subKeys.map(function(k){
+          const v = isTeam ? teamBd[k] : (totalBd[k] - teamBd[k]);
+          return v > 0 ? (displayNames[k] || k) + ' ' + v : null;
+        }).filter(function(x){ return x !== null; });
+        if (parts.length) base += ' (' + parts.join(', ') + ')';
+        return base;
+      }
+
       new Chart(canvas, {
-        type: 'bar',
+        type: 'doughnut',
         data: {
-          labels: ts.buckets,
+          labels: ['Team', 'Non-team'],
           datasets: [{
-            label: 'Team share',
-            data: ts.share.map(function(s){ return s === null ? 0 : s; }),
-            backgroundColor: color(0),
+            data: [teamCount, total - teamCount],
+            backgroundColor: [color(layerIndex[layer]), '#d1d5db'],
+            borderWidth: 1,
           }],
         },
         options: {
-          scales: { y: { min: 0, max: 1, ticks: { callback: function(v){ return (v * 100) + '%'; } } } },
           plugins: {
-            tooltip: {
-              callbacks: {
-                label: function(ctx){
-                  const i = ctx.dataIndex;
-                  const team = ts.team[i], total = ts.total[i];
-                  if (total === 0) return 'no data in window';
-                  return team + ' / ' + total + '  (' + (ctx.parsed.y * 100).toFixed(1) + '%)';
-                }
-              }
-            }
-          }
-        }
+            title:  { display: true, text: layerLabels[layer] + ' \u2014 ' + sharePct },
+            legend: { position: 'bottom' },
+            tooltip: { callbacks: { label: pieTooltipLabel } },
+          },
+        },
       });
     }
 
@@ -346,19 +381,6 @@ _APP_JS = r"""
       // Grow canvas height with user count so horizontal bars stay legible.
       const height = Math.max(200, act.users.length * 28 + 60);
       canvas.style.height = height + 'px';
-
-      const displayNames = {
-        commits: 'commits',
-        pull_requests_opened: 'opened',
-        pull_requests_merged: 'merged',
-        APPROVED: 'approved',
-        CHANGES_REQUESTED: 'changes',
-        COMMENTED: 'commented',
-        review_comments: 'review',
-        pr_conversation_comments: 'PR conv',
-        issue_comments: 'issue',
-      };
-      const layerLabels = { commits: 'Commits', pr: 'PR activity', comments: 'Comments' };
 
       function tooltipLabel(ctx) {
         const layerKey = ctx.dataset.layerKey;
