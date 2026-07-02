@@ -311,3 +311,179 @@ def test_main_picks_newest_run_dir_when_no_arg(tmp_path, monkeypatch) -> None:
     assert rc == 0
     assert (newer / "report.html").exists()
     assert not (older / "report.html").exists()
+
+
+# ---------- activity block ----------
+
+
+def test_activity_layer_sums_and_sort_order() -> None:
+    # alice total 22, bob total 12, carol total 12 (bob before carol alphabetically).
+    metrics = _metrics({
+        "acme/api": _repo(
+            commits_by_user={
+                "alice": {
+                    "commits": 5,
+                    "pull_requests_opened": 2, "pull_requests_merged": 1,
+                    "issues_opened": 99,
+                    "APPROVED": 3, "CHANGES_REQUESTED": 1, "COMMENTED": 1,
+                    "review_comments": 2, "pr_conversation_comments": 3, "issue_comments": 4,
+                    "cross_team_reviews": 99,
+                },
+                "bob":   {"commits": 2, "review_comments": 10},
+                "carol": {"commits": 6, "pull_requests_opened": 6},
+            },
+            ts=_ts(),
+        ),
+    })
+    html = render(metrics)
+    activity = _find_payload(html)["repos"]["acme/api"]["activity"]
+
+    assert activity["users"]  == ["alice", "bob", "carol"]
+    assert activity["totals"] == [22, 12, 12]
+    assert activity["layers"]["commits"]  == [5, 2, 6]
+    assert activity["layers"]["pr"]       == [8, 0, 6]
+    assert activity["layers"]["comments"] == [9, 10, 0]
+
+    # totals[i] invariant.
+    for i, u in enumerate(activity["users"]):
+        s = (activity["layers"]["commits"][i]
+             + activity["layers"]["pr"][i]
+             + activity["layers"]["comments"][i])
+        assert s == activity["totals"][i], f"totals[{i}] mismatch for {u}"
+
+
+def test_activity_breakdown_contains_expected_sub_keys() -> None:
+    metrics = _metrics({
+        "acme/api": _repo(
+            commits_by_user={
+                "alice": {
+                    "commits": 5,
+                    "pull_requests_opened": 2, "pull_requests_merged": 1,
+                    "APPROVED": 3, "CHANGES_REQUESTED": 1, "COMMENTED": 1,
+                    "review_comments": 2, "pr_conversation_comments": 3, "issue_comments": 4,
+                },
+            },
+            ts=_ts(),
+        ),
+    })
+    bd = _find_payload(render(metrics))["repos"]["acme/api"]["activity"]["breakdown"]["alice"]
+
+    assert set(bd) == {"commits", "pr", "comments"}
+    assert bd["commits"] == {"commits": 5}
+    assert bd["pr"] == {
+        "pull_requests_opened": 2,
+        "pull_requests_merged": 1,
+        "APPROVED": 3,
+        "CHANGES_REQUESTED": 1,
+        "COMMENTED": 1,
+    }
+    assert bd["comments"] == {
+        "review_comments": 2,
+        "pr_conversation_comments": 3,
+        "issue_comments": 4,
+    }
+
+
+def test_activity_excludes_issues_opened_and_cross_team_reviews() -> None:
+    metrics = _metrics({
+        "acme/api": _repo(
+            commits_by_user={
+                "alice": {"commits": 1, "issues_opened": 42, "cross_team_reviews": 42},
+            },
+            ts=_ts(),
+        ),
+    })
+    repo = _find_payload(render(metrics))["repos"]["acme/api"]
+    activity = repo["activity"]
+
+    # Excluded metrics must not appear anywhere inside activity.
+    activity_str = json.dumps(activity)
+    assert "issues_opened" not in activity_str
+    assert "cross_team_reviews" not in activity_str
+    # Alice's total is just her commit (1); nothing else contributes.
+    assert activity["totals"] == [1]
+
+    # But per_user_raw (which feeds the details table) still has them.
+    assert repo["per_user_raw"]["alice"]["authoring"]["issues_opened"] == 42
+    assert repo["per_user_raw"]["alice"]["collaboration"]["cross_team_reviews"] == 42
+
+
+def test_activity_handles_missing_collaboration_block() -> None:
+    # Simulate authoring-only run: per_user has only the "authoring" key,
+    # matching what metrics.py produces when 'collaboration' is not in config.
+    metrics = _metrics(
+        {
+            "acme/api": {
+                "per_user": {
+                    "alice": {
+                        "authoring": {
+                            "commits": 3,
+                            "pull_requests_opened": 2,
+                            "pull_requests_merged": 1,
+                            "issues_opened": 0,
+                        },
+                    },
+                },
+                "team_share": _ts(),
+                "truncated": {},
+                "error": None,
+            },
+        },
+        layers=("authoring", "team_share"),
+    )
+    activity = _find_payload(render(metrics))["repos"]["acme/api"]["activity"]
+
+    assert activity["users"] == ["alice"]
+    assert activity["layers"]["commits"]  == [3]
+    assert activity["layers"]["pr"]       == [3]  # 2 opened + 1 merged, reviews all 0
+    assert activity["layers"]["comments"] == [0]
+    assert activity["totals"] == [6]
+    # Breakdown still emits all layer sub-keys with 0 fallbacks.
+    bd = activity["breakdown"]["alice"]
+    assert bd["pr"]["APPROVED"] == 0
+    assert bd["comments"]["review_comments"] == 0
+
+
+def test_activity_empty_repo() -> None:
+    metrics = _metrics({
+        "acme/api": _repo(ts=_ts()),  # commits_by_user=None -> per_user={}
+    })
+    activity = _find_payload(render(metrics))["repos"]["acme/api"]["activity"]
+
+    assert activity == {
+        "users": [],
+        "totals": [],
+        "layers": {"commits": [], "pr": [], "comments": []},
+        "breakdown": {},
+    }
+
+
+def test_activity_omitted_for_errored_repo() -> None:
+    metrics = _metrics({
+        "broken": _repo(error="not_found"),
+    })
+    repo = _find_payload(render(metrics))["repos"]["broken"]
+    assert repo == {"error": "not_found"}  # no activity, no per_user_raw, no team_share
+
+
+def test_activity_works_on_aggregate_tab() -> None:
+    metrics = _metrics({
+        "acme/api": _repo(
+            commits_by_user={"alice": {"commits": 4}, "bob": {"commits": 1}},
+            ts=_ts(),
+        ),
+        "acme/web": _repo(
+            commits_by_user={"alice": {"commits": 2}, "bob": {"commits": 3}},
+            ts=_ts(),
+        ),
+    })
+    agg_metrics = {
+        "run": metrics["run"],
+        "repos": {"__aggregate__": _aggregate(metrics), **metrics["repos"]},
+    }
+    activity = _find_payload(render(agg_metrics))["repos"]["__aggregate__"]["activity"]
+
+    # alice 6 commits, bob 4 commits -> alice first.
+    assert activity["users"] == ["alice", "bob"]
+    assert activity["layers"]["commits"] == [6, 4]
+    assert activity["totals"] == [6, 4]

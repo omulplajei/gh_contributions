@@ -88,6 +88,46 @@ def _chart_data(repo: dict, layers: set) -> dict:
     # Raw per-user payload for the details table (browser-side rendered).
     result["per_user_raw"] = per_user
 
+    # Unified per-user activity block: pre-sorted users + three layer sums +
+    # per-user sub-metric breakdown for tooltips. Always emitted (even when
+    # config layers are disabled — missing sub-metrics contribute 0).
+    def _breakdown(u: str) -> dict[str, dict[str, int]]:
+        a = per_user.get(u, {}).get("authoring", {}) or {}
+        c = per_user.get(u, {}).get("collaboration", {}) or {}
+        rg = c.get("reviews_given", {}) or {}
+        return {
+            "commits":  {"commits": a.get("commits", 0)},
+            "pr": {
+                "pull_requests_opened": a.get("pull_requests_opened", 0),
+                "pull_requests_merged": a.get("pull_requests_merged", 0),
+                "APPROVED":             rg.get("APPROVED", 0),
+                "CHANGES_REQUESTED":    rg.get("CHANGES_REQUESTED", 0),
+                "COMMENTED":            rg.get("COMMENTED", 0),
+            },
+            "comments": {
+                "review_comments":          c.get("review_comments", 0),
+                "pr_conversation_comments": c.get("pr_conversation_comments", 0),
+                "issue_comments":           c.get("issue_comments", 0),
+            },
+        }
+
+    breakdown = {u: _breakdown(u) for u in per_user}
+    totals_by_user = {
+        u: sum(v for layer in b.values() for v in layer.values())
+        for u, b in breakdown.items()
+    }
+    users_sorted = sorted(per_user, key=lambda u: (-totals_by_user[u], u))
+    result["activity"] = {
+        "users":  users_sorted,
+        "totals": [totals_by_user[u] for u in users_sorted],
+        "layers": {
+            "commits":  [breakdown[u]["commits"]["commits"] for u in users_sorted],
+            "pr":       [sum(breakdown[u]["pr"].values())   for u in users_sorted],
+            "comments": [sum(breakdown[u]["comments"].values()) for u in users_sorted],
+        },
+        "breakdown": breakdown,
+    }
+
     if "team_share" in layers and repo.get("team_share"):
         ts = repo["team_share"]
         buckets = list(_TEAM_SHARE_BUCKETS)
