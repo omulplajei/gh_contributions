@@ -265,3 +265,18 @@ def test_missing_month_in_the_middle_contributes_zero_no_error() -> None:
     # Missing months in-window (with no bucket at all) are treated as gaps, not errors.
     assert repo["error"] is None
     assert repo["per_user"]["alice"]["authoring"]["commits"] == 2
+
+
+def test_partial_error_reports_partial_and_keeps_good_data() -> None:
+    out = _load("partial_error", today=date(2026, 7, 31))
+    repo = out["repos"]["acme/api"]
+    # May + June good (1 commit each by alice); July errored (rate_limited).
+    assert repo["per_user"]["alice"]["authoring"]["commits"] == 2
+    assert repo["error"] == "partial: failed months: 2026-07 (rate_limited)"
+
+
+def test_partial_error_all_months_failed_surfaces_single_error() -> None:
+    out = _load("partial_error_all_bad", today=date(2026, 7, 31))
+    repo = out["repos"]["acme/api"]
+    assert repo["per_user"] is None
+    assert repo["error"] == "not_found"

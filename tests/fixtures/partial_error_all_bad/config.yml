@@ -1,0 +1,4 @@
+usernames: [alice]
+repos: [acme/api]
+since: 2026-05-01
+metrics: [authoring]
