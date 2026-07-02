@@ -256,3 +256,12 @@ def test_multi_month_pr_reviews_deduplicated_by_pr_number() -> None:
     # Merge is last-writer-wins keyed by PR number; must not double-count.
     share = out["repos"]["acme/api"]["team_share"]
     assert share["pr"]["total"]["APPROVED"] == 1
+
+
+def test_missing_month_in_the_middle_contributes_zero_no_error() -> None:
+    out = _load("missing_month", today=date(2026, 7, 31))
+    repo = out["repos"]["acme/api"]
+    # May: 1 commit by alice. July: 1 commit by alice. June bucket absent.
+    # Missing months in-window (with no bucket at all) are treated as gaps, not errors.
+    assert repo["error"] is None
+    assert repo["per_user"]["alice"]["authoring"]["commits"] == 2
