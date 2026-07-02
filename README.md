@@ -30,11 +30,19 @@ Schema and validation rules: see [docs/superpowers/specs/2026-07-01-analysis-con
 python3 -m pip install -r requirements.txt
 ```
 
-## Run
+## Fetch
+
+Create `.env` at repo root (git-ignored — never commit):
 
 ```bash
-export GITHUB_TOKEN=<personal access token with repo:read>
-python3 -m gh_contributions.run
+echo 'export GITHUB_TOKEN=<personal access token with repo:read>' > .env
+```
+
+Then run:
+
+```bash
+./fetch.sh                          # uses config.yml
+./fetch.sh path/to/other-config.yml # override config
 ```
 
 Output: `out/<UTC-timestamp>/metrics.json`. Raw API responses are cached under `out/raw/<YYYY-MM>/<owner>__<repo>/` and reused across runs — see `## Raw-data cache` below.
@@ -50,7 +58,7 @@ To force a refresh of a specific bucket, delete it and re-run:
 
 ```bash
 rm -rf out/raw/2026-07/acme__api
-python3 -m gh_contributions.run
+./fetch.sh
 ```
 
 The current calendar month is never fetched or cached — the analysis window ends
@@ -63,8 +71,8 @@ ends.
 Turn the run's `metrics.json` into a self-contained HTML page (Chart.js inlined, works offline):
 
 ```bash
-python3 -m gh_contributions.report            # newest out/*/
-python3 -m gh_contributions.report out/2026-07-01T201112Z
+./report.sh                          # newest out/*/
+./report.sh out/2026-07-01T201112Z   # specific run
 ```
 
 Output: `out/<run>/report.html`. Open it in a browser. First tab (`All repos`) aggregates across every configured repo; the rest are one tab per repo.
