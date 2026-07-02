@@ -85,7 +85,7 @@ team_share layer, for consistency.
       "CHANGES_REQUESTED":     40,
       "COMMENTED":            320
     },
-    "share": 0.187
+    "share": 0.134
   },
   "comments": {
     "team": {
@@ -164,9 +164,9 @@ The current per-repo `team_share` chart-data block is replaced by:
 ```json
 "team_share": {
   "layers":   ["commits", "pr", "comments"],
-  "shares":   [0.213, 0.187, 0.097],
+  "shares":   [0.213, 0.134, 0.097],
   "team":     [56, 66, 65],
-  "total":    [262, 471, 670],
+  "total":    [262, 491, 670],
   "breakdown": {
     "commits":  {
       "team":  {"commits": 56},
