@@ -405,7 +405,7 @@ def test_render_errored_repo_shows_error_banner_in_its_tab() -> None:
     assert "<canvas" not in broken_section
     healthy_section = _extract_section(html, "healthy")
     assert "error-banner" not in healthy_section
-    assert healthy_section.count("<canvas") == 4  # 3 team_share pies + 1 activity
+    assert healthy_section.count("<canvas") == 7  # 3 pies + 3 trend + 1 activity
 
 
 def test_render_zero_total_layer_shows_pie_placeholder() -> None:
@@ -423,9 +423,10 @@ def test_render_zero_total_layer_shows_pie_placeholder() -> None:
     assert 'data-layer="pr"' not in section
     assert 'data-layer="comments"' not in section
 
-    # Placeholder card text present for the two empty layers.
+    # Placeholder card text present for the two empty layers (pies + trend cells).
     assert section.count("pie-empty") == 2
-    assert section.count("no data in window") == 2
+    assert section.count("trend-empty") == 2
+    assert section.count("no data in window") == 4
 
 
 def test_render_layer_disabled_placeholder() -> None:
@@ -441,6 +442,47 @@ def test_render_layer_disabled_placeholder() -> None:
     assert 'data-chart="team_share"' not in section
     assert section.count("layer-disabled") == 1  # single wide row placeholder
     assert "team-share-row" not in section        # row wrapper not emitted when disabled
+
+
+# ---------- render.trend-row ----------
+
+
+def test_render_includes_trend_row_with_three_canvases() -> None:
+    by_month = {
+        "commits": {
+            "2026-02": {"team": {"commits": 2}, "total": {"commits": 5}, "share": 0.4},
+        },
+        "pr": {
+            "2026-02": {"team": {"pull_requests_opened": 1}, "total": {"pull_requests_opened": 2}, "share": 0.5},
+        },
+        "comments": {
+            "2026-02": {"team": {"review_comments": 1}, "total": {"review_comments": 3}, "share": 1/3},
+        },
+    }
+    metrics = _metrics({
+        "acme/api": _repo(ts=_ts(commits=(2, 5), pr=(1, 2), comments=(1, 3), by_month=by_month)),
+    })
+    html = render(metrics)
+
+    assert 'class="trend-row"' in html
+    assert 'data-chart="team_share_trend"' in html
+    assert 'data-layer="commits"' in html
+    assert 'data-layer="pr"' in html
+    assert 'data-layer="comments"' in html
+
+
+def test_render_trend_row_shows_empty_cell_when_layer_has_no_data() -> None:
+    empty_bm = {
+        "commits":  {"2026-02": {"team": {"commits": 0}, "total": {"commits": 0}, "share": None}},
+        "pr":       {"2026-02": {"team": {}, "total": {}, "share": None}},
+        "comments": {"2026-02": {"team": {}, "total": {}, "share": None}},
+    }
+    metrics = _metrics({
+        "acme/api": _repo(ts=_ts(by_month=empty_bm)),  # all zeros
+    })
+    html = render(metrics)
+    # Three empty trend cells present.
+    assert html.count('class="cell cell-trend trend-empty"') == 3
 
 
 def _extract_section(html: str, repo: str) -> str:

@@ -231,6 +231,7 @@ def _tab_body(name: str, repo: dict, layers: set, active: bool) -> str:
         )
     parts = [
         _team_share_row(name, repo, layers),
+        _trend_row(name, repo, layers),
         _cell("activity", "Activity", None, name, layers),
     ]
     return (
@@ -268,6 +269,33 @@ def _team_share_row(repo_name: str, repo: dict, layers: set) -> str:
                 "</div>"
             )
     return f'<div class="team-share-row">{"".join(pies)}</div>'
+
+
+def _trend_row(repo_name: str, repo: dict, layers: set) -> str:
+    if "team_share" not in layers:
+        return ""
+    ts = repo.get("team_share") or {}
+    cells: list[str] = []
+    for layer in _TEAM_SHARE_SUB_METRICS:
+        layer_ts = ts.get(layer) or {}
+        agg = layer_ts.get("share")
+        bm = layer_ts.get("by_month") or {}
+        has_data = agg is not None or any(
+            (v or {}).get("share") is not None for v in bm.values()
+        )
+        if not has_data:
+            cells.append(
+                '<div class="cell cell-trend trend-empty">'
+                '<p>no data in window</p>'
+                '</div>'
+            )
+        else:
+            cells.append(
+                '<div class="cell cell-trend">'
+                f'<canvas data-chart="team_share_trend" data-repo="{repo_name}" data-layer="{layer}"></canvas>'
+                '</div>'
+            )
+    return f'<div class="trend-row">{"".join(cells)}</div>'
 
 
 def _cell(chart_key: str, title: str, required_layer: str | None, repo_name: str, layers: set) -> str:
@@ -317,6 +345,10 @@ main { padding-top: 12px; }
 .cell-pie { flex: 1 1 240px; max-width: 320px; }
 .cell-pie canvas { max-height: 260px; }
 .pie-empty { color: #888; text-align: center; padding: 24px 12px; }
+.trend-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: 16px; }
+.cell-trend { flex: 1 1 240px; max-width: 320px; }
+.cell-trend canvas { max-height: 180px; width: 100% !important; height: 180px !important; }
+.trend-empty { color: #888; text-align: center; padding: 24px 12px; }
 .layer-note { color: #666; font-size: 12px; margin: 0 0 8px; }
 table.details { border-collapse: collapse; margin-top: 16px; width: 100%; }
 table.details th, table.details td { border: 1px solid #eee; padding: 4px 8px; text-align: right; }
