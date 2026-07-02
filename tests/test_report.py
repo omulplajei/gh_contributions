@@ -226,7 +226,7 @@ def test_render_embeds_report_data_payload() -> None:
                 "alice": {"commits": 5, "pull_requests_opened": 2, "COMMENTED": 3, "review_comments": 4},
                 "bob":   {"commits": 2, "APPROVED": 1, "issue_comments": 1},
             },
-            ts=_ts(commits=(7, 10), prs=(2, 5), reviews=(4, 4), comments=(5, 8)),
+            ts=_ts(commits=(7, 10), pr=(6, 9), comments=(5, 8)),
         ),
     })
     html = render(metrics)
@@ -236,14 +236,25 @@ def test_render_embeds_report_data_payload() -> None:
     repo = payload["repos"]["acme/api"]
     assert repo["error"] is None
 
-    # team_share block: parallel arrays over the four buckets.
-    assert repo["team_share"]["buckets"] == list(_TEAM_SHARE_BUCKETS_EXPECTED)
-    assert repo["team_share"]["team"]   == [7, 2, 4, 5]
-    assert repo["team_share"]["total"]  == [10, 5, 4, 8]
+    ts = repo["team_share"]
+    assert ts["layers"] == ["commits", "pr", "comments"]
+    assert ts["team"]   == [7, 6, 5]
+    assert ts["total"]  == [10, 9, 8]
+    assert ts["shares"] == [pytest.approx(0.7), pytest.approx(6 / 9), pytest.approx(5 / 8)]
 
-    # activity block: users sorted by total desc.
-    # alice: commits 5 + PR 2 + reviews 3 = 10; comments 4 -> total 14.
-    # bob:   commits 2 + PR 0 + reviews 1 =  3; comments 1 -> total  4.
+    # Breakdown: sub-metric maps present per layer.
+    assert set(ts["breakdown"]) == {"commits", "pr", "comments"}
+    assert set(ts["breakdown"]["pr"]) == {"team", "total"}
+    assert set(ts["breakdown"]["pr"]["team"]) == {
+        "pull_requests_opened", "pull_requests_merged",
+        "APPROVED", "CHANGES_REQUESTED", "COMMENTED",
+    }
+    # _ts() puts all counts in the first sub-key.
+    assert ts["breakdown"]["pr"]["team"]["pull_requests_opened"] == 6
+    assert ts["breakdown"]["pr"]["team"]["APPROVED"] == 0
+    assert ts["breakdown"]["pr"]["total"]["pull_requests_opened"] == 9
+
+    # activity block: users sorted by total desc — unchanged.
     assert repo["activity"]["users"] == ["alice", "bob"]
     assert repo["activity"]["totals"] == [14, 4]
     assert repo["activity"]["layers"]["commits"] == [5, 2]
@@ -254,7 +265,21 @@ def test_render_embeds_report_data_payload() -> None:
     assert "comments" not in repo
 
 
-_TEAM_SHARE_BUCKETS_EXPECTED = ("commits", "pull_requests_opened", "reviews_given", "comments")
+def test_render_team_share_invariants() -> None:
+    metrics = _metrics({
+        "acme/api": _repo(ts=_ts(commits=(3, 4), pr=(2, 10), comments=(0, 0))),
+    })
+    ts = _find_payload(render(metrics))["repos"]["acme/api"]["team_share"]
+
+    for i, layer in enumerate(ts["layers"]):
+        team_sum  = sum(ts["breakdown"][layer]["team"].values())
+        total_sum = sum(ts["breakdown"][layer]["total"].values())
+        assert team_sum  == ts["team"][i]
+        assert total_sum == ts["total"][i]
+        if total_sum == 0:
+            assert ts["shares"][i] is None
+        else:
+            assert ts["shares"][i] == pytest.approx(team_sum / total_sum)
 
 
 def test_render_produces_tab_button_per_repo() -> None:

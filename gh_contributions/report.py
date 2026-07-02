@@ -137,12 +137,16 @@ def _chart_data(repo: dict, layers: set) -> dict:
 
     if "team_share" in layers and repo.get("team_share"):
         ts = repo["team_share"]
-        buckets = list(_TEAM_SHARE_BUCKETS)
+        layers_list = list(_TEAM_SHARE_SUB_METRICS)
         result["team_share"] = {
-            "buckets": buckets,
-            "team":    [ts[b]["team"]  for b in buckets],
-            "total":   [ts[b]["total"] for b in buckets],
-            "share":   [ts[b]["share"] for b in buckets],
+            "layers":    layers_list,
+            "shares":    [ts[l]["share"] for l in layers_list],
+            "team":      [sum(ts[l]["team"].values())  for l in layers_list],
+            "total":     [sum(ts[l]["total"].values()) for l in layers_list],
+            "breakdown": {
+                l: {"team": ts[l]["team"], "total": ts[l]["total"]}
+                for l in layers_list
+            },
         }
 
     return result
