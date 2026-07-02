@@ -24,7 +24,6 @@ class Config:
     usernames: list[str]
     repos: list[str]
     since: date
-    until: date
     metrics: list[str]
 
 
@@ -46,10 +45,13 @@ def load_config(path: str) -> Config:
     if not repos:
         print("warning: repos is empty; no repositories will be analyzed", file=sys.stderr)
 
+    if "until" in raw:
+        raise ConfigError(
+            "'until' has been removed from config; the analysis window now "
+            "ends at today (UTC). Please remove this key."
+        )
+
     since = _require_date(raw, "since")
-    until = _require_date(raw, "until")
-    if until < since:
-        raise ConfigError(f"until ({until}) must be >= since ({since})")
 
     metrics = _require_list_of_str(raw, "metrics")
     if not metrics:
@@ -65,7 +67,6 @@ def load_config(path: str) -> Config:
         usernames=usernames,
         repos=repos,
         since=since,
-        until=until,
         metrics=metrics,
     )
 

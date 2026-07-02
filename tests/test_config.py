@@ -16,7 +16,6 @@ VALID_YAML = textwrap.dedent("""\
     repos:
       - acme/api
     since: 2026-01-01
-    until: 2026-06-30
     metrics:
       - authoring
       - collaboration
@@ -36,7 +35,6 @@ def test_load_happy_path(tmp_path: Path) -> None:
         usernames=["alice", "bob"],
         repos=["acme/api"],
         since=date(2026, 1, 1),
-        until=date(2026, 6, 30),
         metrics=["authoring", "collaboration", "team_share"],
     )
 
@@ -62,9 +60,12 @@ def test_unknown_metric_errors(tmp_path: Path) -> None:
         load_config(_write(tmp_path, body))
 
 
-def test_until_before_since_errors(tmp_path: Path) -> None:
-    body = VALID_YAML.replace("since: 2026-01-01", "since: 2026-07-01")
-    with pytest.raises(ConfigError, match="until"):
+def test_until_key_is_rejected(tmp_path: Path) -> None:
+    body = VALID_YAML.replace(
+        "since: 2026-01-01\n",
+        "since: 2026-01-01\nuntil: 2026-06-30\n",
+    )
+    with pytest.raises(ConfigError, match="'until' has been removed"):
         load_config(_write(tmp_path, body))
 
 
