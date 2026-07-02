@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from gh_contributions.report import _aggregate, render, main
+from gh_contributions.report import _aggregate, _chart_data, render, main
 
 
 def _repo(commits_by_user=None, ts=None, truncated=None, error=None):
@@ -237,6 +237,40 @@ def test_aggregate_sums_team_share_by_month_across_repos() -> None:
     assert set(bm) == {"2026-02", "2026-03"}
     assert bm["2026-02"] == {"team": {"commits": 3}, "total": {"commits": 8}, "share": pytest.approx(3 / 8)}
     assert bm["2026-03"] == {"team": {"commits": 0}, "total": {"commits": 0}, "share": None}
+
+
+# ---------- _chart_data.team_share_trend ----------
+
+
+def test_chart_data_emits_team_share_trend_parallel_arrays() -> None:
+    by_month = {
+        "commits": {
+            "2026-02": {"team": {"commits": 2}, "total": {"commits": 5}, "share": 0.4},
+            "2026-03": {"team": {"commits": 0}, "total": {"commits": 0}, "share": None},
+        },
+    }
+    repo = _repo(ts=_ts(commits=(2, 5), by_month=by_month))
+    cd = _chart_data(repo, {"team_share"})
+
+    trend = cd["team_share_trend"]
+    assert trend["months"] == ["2026-02", "2026-03"]
+
+    commits = trend["commits"]
+    assert commits["share"] == [pytest.approx(0.4), None]
+    assert commits["team"]  == [2, 0]
+    assert commits["total"] == [5, 0]
+    assert commits["aggregate_share"] == pytest.approx(2 / 5)
+
+
+def test_chart_data_team_share_trend_aggregate_share_null_when_total_zero() -> None:
+    by_month = {
+        "commits": {
+            "2026-02": {"team": {"commits": 0}, "total": {"commits": 0}, "share": None},
+        },
+    }
+    repo = _repo(ts=_ts(commits=(0, 0), by_month=by_month))
+    cd = _chart_data(repo, {"team_share"})
+    assert cd["team_share_trend"]["commits"]["aggregate_share"] is None
 
 
 # ---------- render (happy path) ----------

@@ -182,6 +182,35 @@ def _chart_data(repo: dict, layers: set) -> dict:
             },
         }
 
+        months_seen: set[str] = set()
+        for l in layers_list:
+            months_seen.update((ts[l].get("by_month") or {}).keys())
+        months_sorted = sorted(months_seen)
+
+        trend: dict = {"months": months_sorted}
+        for l in layers_list:
+            bm = ts[l].get("by_month") or {}
+            share_arr: list = []
+            team_arr:  list = []
+            total_arr: list = []
+            for m in months_sorted:
+                entry = bm.get(m)
+                if entry is None:
+                    share_arr.append(None)
+                    team_arr.append(0)
+                    total_arr.append(0)
+                else:
+                    share_arr.append(entry["share"])
+                    team_arr.append(sum(entry["team"].values()))
+                    total_arr.append(sum(entry["total"].values()))
+            trend[l] = {
+                "share":           share_arr,
+                "team":            team_arr,
+                "total":           total_arr,
+                "aggregate_share": ts[l]["share"],
+            }
+        result["team_share_trend"] = trend
+
     return result
 
 
