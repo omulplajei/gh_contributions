@@ -17,9 +17,9 @@ _TEAM_SHARE_SUB_METRICS = {
     "comments": ("review_comments", "pr_conversation_comments", "issue_comments"),
 }
 _LAYER_TITLE = {
-    "commits":  "Commits",
-    "pr":       "PR activity",
-    "comments": "Comments",
+    "commits":  "Team share of commits",
+    "pr":       "Team share of PR activity",
+    "comments": "Team share of comments",
 }
 
 _ASSET_DIR = Path(__file__).parent / "assets"
@@ -268,7 +268,10 @@ def _team_share_row(repo_name: str, repo: dict, layers: set) -> str:
                 f'<canvas data-chart="team_share" data-repo="{repo_name}" data-layer="{layer}"></canvas>'
                 "</div>"
             )
-    return f'<div class="team-share-row">{"".join(pies)}</div>'
+    return (
+        '<h2 class="row-heading">Team share (window aggregate)</h2>'
+        f'<div class="team-share-row">{"".join(pies)}</div>'
+    )
 
 
 def _trend_row(repo_name: str, repo: dict, layers: set) -> str:
@@ -295,7 +298,11 @@ def _trend_row(repo_name: str, repo: dict, layers: set) -> str:
                 f'<canvas data-chart="team_share_trend" data-repo="{repo_name}" data-layer="{layer}"></canvas>'
                 '</div>'
             )
-    return f'<div class="trend-row">{"".join(cells)}</div>'
+    return (
+        '<h2 class="row-heading">Team share by month</h2>'
+        f'<div class="trend-row">{"".join(cells)}</div>'
+        '<p class="trend-caption">Dashed line: window average.</p>'
+    )
 
 
 def _cell(chart_key: str, title: str, required_layer: str | None, repo_name: str, layers: set) -> str:
@@ -349,6 +356,8 @@ main { padding-top: 12px; }
 .cell-trend { flex: 1 1 240px; max-width: 320px; }
 .cell-trend canvas { max-height: 180px; width: 100% !important; height: 180px !important; }
 .trend-empty { color: #888; text-align: center; padding: 24px 12px; }
+.row-heading { font-size: 15px; font-weight: 600; margin: 8px 0 -4px; color: #333; }
+.trend-caption { color: #666; font-size: 12px; margin: -8px 0 0; }
 .layer-note { color: #666; font-size: 12px; margin: 0 0 8px; }
 table.details { border-collapse: collapse; margin-top: 16px; width: 100%; }
 table.details th, table.details td { border: 1px solid #eee; padding: 4px 8px; text-align: right; }
@@ -389,7 +398,16 @@ _APP_JS = r"""
     pr_conversation_comments: 'PR conv',
     issue_comments: 'issue',
   };
-  const layerLabels = { commits: 'Commits', pr: 'PR activity', comments: 'Comments' };
+  const pieTitles = {
+    commits:  'Team share of commits',
+    pr:       'Team share of PR activity',
+    comments: 'Team share of comments',
+  };
+  const trendTitles = {
+    commits:  'Monthly team share of commits',
+    pr:       'Monthly team share of PR activity',
+    comments: 'Monthly team share of comments',
+  };
   const layerIndex  = { commits: 0, pr: 1, comments: 2 };
 
   document.querySelectorAll('canvas[data-chart]').forEach(function(canvas){
@@ -440,7 +458,7 @@ _APP_JS = r"""
         },
         options: {
           plugins: {
-            title:  { display: true, text: layerLabels[layer] + ' \u2014 ' + sharePct },
+            title:  { display: true, text: pieTitles[layer] + ' \u2014 ' + sharePct },
             legend: { position: 'bottom' },
             tooltip: { callbacks: { label: pieTooltipLabel } },
           },
@@ -463,7 +481,7 @@ _APP_JS = r"""
       const agg = layerData.aggregate_share;
 
       const datasets = [{
-        label: layerLabels[layer] + ' share',
+        label: trendTitles[layer],
         data: sharePct,
         borderColor: color(layerIndex[layer]),
         backgroundColor: color(layerIndex[layer]),
@@ -502,10 +520,12 @@ _APP_JS = r"""
           scales: {
             y: {
               min: 0, max: 100,
+              title: { display: true, text: '% of total activity' },
               ticks: { stepSize: 25, callback: function(v){ return v + '%'; } },
             },
           },
           plugins: {
+            title:  { display: true, text: trendTitles[layer] },
             legend: { display: false },
             tooltip: {
               callbacks: {
