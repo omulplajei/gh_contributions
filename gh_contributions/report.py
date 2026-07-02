@@ -448,6 +448,76 @@ _APP_JS = r"""
       });
     }
 
+    if (kind === 'team_share_trend' && repo.team_share_trend) {
+      const trend = repo.team_share_trend;
+      const layer = canvas.dataset.layer;
+      const layerData = trend[layer];
+      if (!layerData) return;
+
+      const monthShort = { '01':'Jan','02':'Feb','03':'Mar','04':'Apr','05':'May','06':'Jun',
+                            '07':'Jul','08':'Aug','09':'Sep','10':'Oct','11':'Nov','12':'Dec' };
+      const labels = trend.months.map(function(m){
+        const parts = m.split('-'); return monthShort[parts[1]] || m;
+      });
+      const sharePct = layerData.share.map(function(v){ return v == null ? null : v * 100; });
+      const agg = layerData.aggregate_share;
+
+      const datasets = [{
+        label: layerLabels[layer] + ' share',
+        data: sharePct,
+        borderColor: color(layerIndex[layer]),
+        backgroundColor: color(layerIndex[layer]),
+        spanGaps: false,
+        tension: 0,
+        pointRadius: 3,
+      }];
+      if (agg != null) {
+        datasets.push({
+          label: 'window aggregate',
+          data: labels.map(function(){ return agg * 100; }),
+          borderColor: '#9ca3af',
+          borderDash: [4, 4],
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false,
+        });
+      }
+
+      function trendTooltipTitle(ctxs) {
+        return ctxs.length ? trend.months[ctxs[0].dataIndex] : '';
+      }
+      function trendTooltipLabel(ctx) {
+        if (ctx.datasetIndex === 1) return null;
+        const i = ctx.dataIndex;
+        const v = sharePct[i];
+        if (v == null) return 'no data';
+        return v.toFixed(1) + '% (team ' + layerData.team[i] + ' of total ' + layerData.total[i] + ')';
+      }
+
+      new Chart(canvas, {
+        type: 'line',
+        data: { labels: labels, datasets: datasets },
+        options: {
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              min: 0, max: 100,
+              ticks: { stepSize: 25, callback: function(v){ return v + '%'; } },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: trendTooltipTitle,
+                label: trendTooltipLabel,
+              },
+            },
+          },
+        },
+      });
+    }
+
     if (kind === 'activity' && repo.activity) {
       const act = repo.activity;
 
